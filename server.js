@@ -778,30 +778,6 @@ app.get('/absence-count-by-promotion', checkAdminAccess, async (req, res) => {
   return res.status(200).json(result);
 });
 
-app.get('/absence-count-by-promotion-old', checkAdminAccess, async (req, res) => {
-  const { promotion } = req.query;
-  console.log("lets go")
-  try {
-
-    const now = new Date(); // Current date and time
-    const lessons = await fetchEventsByDateRange(promotion, getStartOfSchoolYear(), now.toISOString());
-    const absences = await countAbsencesByPromotion(lessons, promotion);
-
-    let result = [];
-    for (const studid in absences) {
-      result.push({
-        studentId: studid,
-        name: absences[studid].name,
-        absenceCount: absences[studid].absence_count
-      });
-    }
-    res.status(200).json(result);
-  } catch (error) {
-    console.error('Error fetching absence count by promotion:', error);
-    res.status(500).send('Error fetching absence count by promotion');
-  }
-});
-
 // Get absence details by student
 app.get('/absence-details-by-student', checkAdminAccess, async (req, res) => {
   const { etudiantid } = req.query;
