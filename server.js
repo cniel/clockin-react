@@ -1,0 +1,819 @@
+require('dotenv').config();
+
+const fs = require('fs');
+const express = require('express');
+const sqlite3 = require('sqlite3').verbose();
+const nodemailer = require('nodemailer');
+const bcrypt = require('bcryptjs');
+const cors = require('cors'); // Import cors
+const crypto = require('crypto');
+const path = require('path');
+const moment = require('moment-timezone');
+const qrcode = require('qrcode');
+const { google } = require('googleapis');
+const axios = require('axios');
+
+const app = express();
+const port = 3000;
+
+app.use(express.json());
+app.use(cors()); // Use cors middleware
+
+// SQLITE3 database
+const db = new sqlite3.Database('./data/clockin.db'); // Change this path as needed
+
+const api_key = "AIzaSyDh_23gFH-oYNTwr5LfHzToeYwXDWM7vsM" // google api key
+
+
+// Create tables if they don't exist
+db.serialize(() => {
+  db.run("CREATE TABLE IF NOT EXISTS etudiants (etudiantid TEXT PRIMARY KEY, nom TEXT NOT NULL, prenom TEXT, designationlong TEXT)")
+  db.run("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, etudiant_id TEXT NOT NULL, email TEXT UNIQUE, password TEXT, first_name TEXT, last_name TEXT, promotion TEXT, group_name TEXT)");
+  db.run("CREATE TABLE IF NOT EXISTS clockins (id INTEGER PRIMARY KEY, user_id INTEGER, email TEXT, event_id TEXT, event_name TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)");
+  db.run("CREATE TABLE IF NOT EXISTS sessions (id INTEGER PRIMARY KEY, user_id INTEGER, token TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)");
+});
+
+const getCalendarUrl = (promotion) => {
+  const agenda_ids = {
+    "P1": "uq4s0969b5tbpm3eld34m7qiho@group.calendar.google.com",
+    "P2": "5gqrig13o56rltik5oc3h0kjds@group.calendar.google.com",
+    "P3": "amqdq7rt8fr3kcoevlahsempq0@group.calendar.google.com",
+    "D1": "rd1pbji735mnahkrhigvc9qjlg@group.calendar.google.com",
+    "D2": "9i12it26qlrbmo5gosl2722ps8@group.calendar.google.com",
+    "AC": "ad5c2unm2ed4b5ul3qbodd1eeg@group.calendar.google.com"
+  }
+
+  return "https://www.googleapis.com/calendar/v3/calendars/" + agenda_ids[promotion] +"/events?key=" + api_key
+}
+
+const getCalendarEventUrl = (promotion, eventId) => {
+  const agenda_ids = {
+    "P1": "uq4s0969b5tbpm3eld34m7qiho@group.calendar.google.com",
+    "P2": "5gqrig13o56rltik5oc3h0kjds@group.calendar.google.com",
+    "P3": "amqdq7rt8fr3kcoevlahsempq0@group.calendar.google.com",
+    "D1": "rd1pbji735mnahkrhigvc9qjlg@group.calendar.google.com",
+    "D2": "9i12it26qlrbmo5gosl2722ps8@group.calendar.google.com",
+    "AC": "ad5c2unm2ed4b5ul3qbodd1eeg@group.calendar.google.com"
+  }
+
+  return "https://www.googleapis.com/calendar/v3/calendars/" + agenda_ids[promotion] +"/events/" + eventId + "?key=" + api_key
+}
+
+
+const formatDate = (date) => date.toLocaleDateString('fr-FR', {
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+});
+
+const formatTime = (date) => date.toLocaleTimeString('fr-FR', {
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+}).replace(':', 'h');
+
+
+const getStartOfSchoolYear = () => {
+  const now = new Date();
+  let startOfSchoolYear;
+  if (now.getMonth() >= 7 && now.getMonth() <= 11) { // Between August (7) and December (11)
+    startOfSchoolYear = new Date(now.getFullYear(), 7, 20); // August 20 of the current year
+  } else { // Between January (0) and July (6)
+    startOfSchoolYear = new Date(now.getFullYear() - 1, 7, 20); // August 20 of the previous year
+  }
+
+  return startOfSchoolYear.toISOString();
+}
+
+// Generate a random password
+const generatePassword = () => Math.random().toString(36).slice(-8);
+
+// Send email
+const sendEmail = (email, password) => {
+  const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: 'niel.clement@gmail.com',
+      pass: "lucvmzjzvkccfbrh"
+    }
+  });
+
+  console.log("Password generated: ", password)
+  const mailOptions = {
+    from: 'niel.clement@gmail.com',
+    to: email,
+    subject: 'Mot de passe IDHEO',
+    text: `Ton mot de passe est : ${password}`
+  };
+
+  transporter.sendMail(mailOptions, (error, info) => {
+    if (error) {
+      return console.log(error);
+    }
+    console.log('Email sent: ' + info.response);
+  });
+};
+
+// Fetch events (lessons) from the calendar
+const fetchEventsByDateRange = async (promotion, startDatetime, endDatetime) => {
+  try {
+    let calendarUrl = getCalendarUrl(promotion);
+    if (startDatetime) calendarUrl += `&timeMin=${encodeURIComponent(startDatetime)}`;
+    if (endDatetime) calendarUrl += `&timeMax=${encodeURIComponent(endDatetime)}`;
+
+    const response = await axios.get(calendarUrl);
+
+    return response.data.items;
+  } catch (error) {
+    console.error('Error fetching lessons from Google Calendar:', error);
+    return [];
+  }
+};
+
+// Function to fetch events from Google Calendar
+const fetchCalendarEvents = async (promotion) => {
+  let calendarUrl = getCalendarUrl(promotion);
+
+  const startOfDay = moment().tz('Europe/Paris').subtract(1, 'days').startOf('day').format();  // 00:00 yesterday
+  const endOfDay = moment().tz('Europe/Paris').subtract(1, 'days').endOf('day').format();
+
+  calendarUrl += `&timeMin=${encodeURIComponent(startOfDay)}`;
+  calendarUrl += `&timeMax=${encodeURIComponent(endOfDay)}`;
+
+  const response = await axios.get(calendarUrl);
+
+  return response.data.items;
+};
+
+// Function to fetch events from Google Calendar
+const fetchCalendarEventsWholeYearUntilNow = async (promotion, groupName) => {
+
+  const now = new Date(); // Current date and time
+  const events = await fetchEventsByDateRange(promotion, getStartOfSchoolYear(), now.toISOString());
+
+  return getRelevantEvents(events, groupName, ongoingEventsFilter=false);
+};
+
+const filterOngoingEvents = (events) => {
+  let now = moment.tz('2025-03-12 14:45', 'Europe/Paris');  // Current time in France
+
+  return events.filter(event => {
+    const eventStart = moment(event.start.dateTime);
+    const eventEnd = moment(event.end.dateTime);
+    return now.isBetween(eventStart, eventEnd);  // Check if current time is between event start and end
+  });
+}
+
+function matchGroup(input, text) {
+  if (!input || !text) return false; // Vérifiez que les arguments sont définis
+
+  const numberMatch = input.match(/\d+/); // Extraction du nombre dans "Gr2"
+  if (!numberMatch) return false; // Pas de nombre dans l'input
+
+  const number = numberMatch[0]; // Le numéro extrait (ex: "2")
+
+  // Regex pour trouver des groupes "GrX", "GrX-Y", etc.
+  const regex = new RegExp(`Gr[\\d-]*${number}[\\d-]*\\b`, "g");
+
+  return regex.test(text);
+}
+
+const getRelevantEvents = (events, group_name, ongoingEventsFilter=true) => {
+  const eventsToFilter = ongoingEventsFilter ? filterOngoingEvents(events) : events;
+  return eventsToFilter.filter(event => {
+
+    const titleIncludesGroup = matchGroup(group_name, event.summary);
+    const descriptionIncludesGroup = event.description && matchGroup(group_name, event.description);
+    if (titleIncludesGroup || descriptionIncludesGroup) {
+      return true;
+    }
+
+    // Check if the event is associated with other groups or the whole promotion
+    const otherGroupsInTitle = event.summary.matchAll(/Gr\d+/g);
+    const otherGroupsInDescription = event.description ? event.description.matchAll(/Gr\d+/g) : [];
+
+    const otherGroups = [...(otherGroupsInTitle || []), ...(otherGroupsInDescription || [])];
+    if (otherGroups.length > 0) {
+      return false;
+    }
+
+    return true;
+  });
+};
+
+// Function to get clock-in records for events
+async function getClockInsForEvents(db, events) {
+
+  const clockins = await Promise.all(events.map(event =>
+    new Promise((resolve, reject) => {
+      db.get('SELECT * FROM clockins INNER JOIN users ON clockins.user_id=users.id WHERE event_id = ?', event.id, (err, rows) => {
+        if (err) {
+          return reject(err);
+        }
+        resolve(rows); // Return the row for this event
+      });
+    })
+  ));
+
+  return clockins.flat();
+}
+
+async function getClockInsForEventsByUserId(db, events, userId) {
+
+  const clockins = await Promise.all(events.map(event =>
+    new Promise((resolve, reject) => {
+      db.get('SELECT * FROM clockins WHERE event_id = ? and userId = ?', event.id, userId, (err, rows) => {
+        if (err) {
+          return reject(err);
+        }
+        resolve(rows); // Return the row for this event
+      });
+    })
+  ));
+
+  return clockins.flat();
+}
+
+async function getStudentsByPromotion(db, promotion) {
+  const students = await new Promise((resolve, reject) => {
+    db.all('SELECT e.nom, e.prenom, e.etudiantid, u.group_name FROM etudiants e LEFT JOIN users u on u.etudiantid = e.etudiantid where designationlong=? ORDER BY nom', promotion, (err, rows) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(rows);
+      }
+    });
+  });
+
+  return students;
+}
+
+// Function to fetch events for a specific day
+async function fetchEventsForDay(date, promotion) {
+
+  const startOfDay = new Date(date);
+  const endOfDay = new Date(date);
+  endOfDay.setDate(startOfDay.getDate() + 1); // End of the day
+
+  let calendarUrl = getCalendarUrl(promotion);
+  calendarUrl += `&timeMin=${encodeURIComponent(startOfDay)}`;
+  calendarUrl += `&timeMin=${encodeURIComponent(endOfDay)}`;
+
+  const response = await axios.get(calendarUrl);
+
+  return response.data.items;
+}
+
+const countAbsencesByPromotion = async (events, promotion) => {
+  const studentAbsences = {};
+
+  // Fetch all students from your database
+  const students = await getStudentsByPromotion(db, promotion);
+
+  // Initialize absence counts for each student
+  students.forEach(student => {
+    studentAbsences[student.etudiantid] = {
+      name: student.nom + " " + student.prenom,
+      absence_count: 0
+    };
+  });
+
+  // Get all events with students who clocked in
+  const clockIns = await getClockInsForEvents(db, events);
+  // Combine events with clock-in records
+  const eventsWithClockIns = events.map(event => ({
+    ...event,
+    clockIns: clockIns.filter(clockIn => clockIn != null ? clockIn.event_id === event.id : false),
+  }));
+
+  // for each event: for each student: count abscence
+  eventsWithClockIns.map((eventWithClockIns) => {
+    const studentsWhoClockedIn = eventWithClockIns.clockIns.map(ci => ci.etudiantid);
+    students.forEach(student => {
+      const relevantEvents = getRelevantEvents([eventWithClockIns], student.group_name);
+      if (relevantEvents.length > 0 && !studentsWhoClockedIn.includes(student.etudiantid)) {
+        studentAbsences[student.etudiantid].absence_count++;
+      }
+      if (!studentsWhoClockedIn.includes(student.etudiantid)) {
+        studentAbsences[student.etudiantid].absence_count++;
+      }
+    });
+  });
+
+  return studentAbsences;
+}
+
+const listAbsencesByUser = async (events, etudiantid) => {
+  try {
+    console.log("etudiantid : ", etudiantid)
+    const student = await new Promise((resolve, reject) => {
+      db.get('SELECT etudiants.*, email FROM etudiants LEFT join users ON etudiants.etudiantid = users.etudiantid WHERE etudiants.etudiantid=?', etudiantid, (err, student) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(student);
+        }
+      });
+    });
+
+    if (!student) {
+      throw new Error('Student not found');
+    }
+
+    let studentPresenceSheet = []; // [{matiere_attribute: any, present: boolean},]
+
+    // Get all events with students who clocked in
+    // const clockIns = await getClockInsForEvents(db, events);
+    const clockIns = await getClockInsForEventsByUserId(db, events, etudiantid);
+
+    // Combine events with clock-in records
+    const eventsWithClockIns = events.map(event => ({
+      ...event,
+      clockIns: clockIns.filter(clockIn => clockIn != null ? clockIn.event_id === event.id : false),
+    }));
+
+    // for each event: count student absence
+    eventsWithClockIns.forEach((eventWithClockIns) => {
+      const studentsWhoClockedIn = eventWithClockIns.clockIns.map(ci => ci.etudiantid);
+      const wasPresent = studentsWhoClockedIn.includes(student.etudiantid);
+      studentPresenceSheet.push({
+        'eventId': eventWithClockIns.id,
+        'eventTitle': eventWithClockIns.summary,
+        'start': `${formatDate(new Date(eventWithClockIns.start.dateTime))} ${formatTime(new Date(eventWithClockIns.start.dateTime))}`,
+        'end': `${formatDate(new Date(eventWithClockIns.end.dateTime))} ${formatTime(new Date(eventWithClockIns.end.dateTime))}`,
+        'was_present': wasPresent
+      });
+    });
+
+    return studentPresenceSheet;
+  } catch (error) {
+    console.error('Error in listAbsencesByUser:', error);
+    throw error;
+  }
+};
+
+
+
+// Middleware to check admin access code
+const checkAdminAccess = (req, res, next) => {
+  const accessCode = req.headers['x-access-code'];
+  const validAccessCode = process.env.ADMIN_ACCESS_CODE;
+
+  if (accessCode === validAccessCode) {
+    next(); // Access granted, proceed to the next middleware or route handler
+  } else {
+    res.status(403).send('Forbidden: Invalid access code');
+  }
+};
+
+// ----------------------------------------------
+// BELOW : API ENDPOINTS
+// ----------------------------------------------
+
+// Register user
+app.post('/register', (req, res) => {
+  const { firstName, lastName, email, promotion, group, userId } = req.body;
+  const password = generatePassword();
+  const hashedPassword = bcrypt.hashSync(password, 8);
+
+  if (email === "niel.clement@gmail.com") {
+    db.run("INSERT INTO users (etudiantid, email, password, first_name, last_name, promotion, group_name) VALUES (?, ?, ?, ?, ?, ?, ?)", [userId, email, hashedPassword, firstName, lastName, promotion, group], function (err) {
+      if (err) {
+        return res.status(400).send("User already exists");
+      }
+      sendEmail(email, password);
+      res.status(200).send("User registered and password sent");
+    });
+  } else {
+    // Insert user ID, email, password, promotion, and group into users table
+    db.run("INSERT INTO users (etudiantid, email, password, first_name, last_name, promotion, group_name) VALUES (?, ?, ?, ?, ?, ?, ?)", [userId, email, hashedPassword, firstName, lastName, promotion, group], function (err) {
+      if (err) {
+        return res.status(400).send("User already exists");
+      }
+      sendEmail(email, password);
+      res.status(200).send("User registered and password sent");
+    });
+  }
+});
+
+// Login user
+app.post('/login', (req, res) => {
+  const { email, password } = req.body;
+
+  db.get("SELECT * FROM users WHERE email = ?", [email], (err, row) => {
+    console.log("bcrypt.compareSync(password, row.password) : ", bcrypt.compareSync(password, row.password))
+    if (err || !row || !bcrypt.compareSync(password, row.password)) {
+      console.log("err ", err)
+      console.log("row ", row)
+      return res.status(400).send("Invalid email or password");
+    }
+
+    const userId = row.user_id;
+
+    // Check for active sessions
+    db.get("SELECT * FROM sessions WHERE user_id = ?", [userId], (err, session) => {
+      if (session) {
+        console.log("already logged in")
+        return res.status(400).send("User already logged in from another device");
+      }
+
+      // Generate a token
+      const token = crypto.randomBytes(16).toString('hex');
+
+      // Store the session
+      db.run("INSERT INTO sessions (user_id, token) VALUES (?, ?)", [userId, token], function (err) {
+        if (err) {
+          console.log("error creating session")
+          return res.status(500).send("Error creating session");
+        }
+
+        return res.status(200).send({ message: "Login successful", token });
+      });
+    });
+  });
+});
+
+// Clock in
+app.post('/clockin', (req, res) => {
+  const { email, eventId, eventSummary } = req.body;
+
+  db.get("SELECT * FROM users WHERE email = ?", [email], (err, row) => {
+    if (err || !row) {
+      return res.status(400).send("User not found");
+    }
+    db.run("INSERT INTO clockins (user_id, email, event_id, event_name) VALUES (?, ?, ?, ?)", [row.id, email, eventId, eventSummary], function (err) {
+      if (err) {
+        return res.status(500).send("Error clocking in");
+      }
+      res.status(200).send("Clocked in successfully");
+    });
+  });
+});
+
+// Logout user
+app.post('/logout', (req, res) => {
+  const { token } = req.body;
+
+  db.run("DELETE FROM sessions WHERE token = ?", [token], function (err) {
+    if (err) {
+      return res.status(500).send("Error logging out");
+    }
+    res.status(200).send("Logout successful");
+  });
+});
+
+app.post('/loadallevents', (req, res) => {
+  const { email } = req.body;
+
+  db.get("SELECT * FROM users WHERE email = ?", [email], (err, row) => {
+    if (err || !row) {
+      return res.status(400).send("User not found");
+    }
+
+    const promotion = row.promotion;
+    const group_name = row.group_name;
+    fetchCalendarEvents(promotion).then(events => {
+      res.status(200).send({ message: "fetchCalendarAllEvents", events });
+    });
+  });
+});
+
+// fetch relevant events at the curent time
+app.post('/loadevents', (req, res) => {
+  const { email } = req.body;
+
+  db.get("SELECT * FROM users WHERE email = ?", [email], (err, row) => {
+    if (err || !row) {
+      return res.status(400).send("User not found");
+    }
+
+    const promotion = row.promotion;
+    const group_name = row.group_name;
+
+    // Fetch calendar events for the user's promotion
+    fetchCalendarEvents(promotion).then(events => {
+      const relevantEvents = getRelevantEvents(events, group_name);
+
+      res.status(200).send({ message: "fetchCalendarEvents", events: relevantEvents });
+    }).catch(error => {
+      console.error("Error fetching calendar events:", error);
+      res.status(500).send({ message: "Error fetching calendar events", error });
+    });
+
+  })
+
+});
+
+// Endpoint to get events and clock-ins for a specific day
+app.post('/events-for-day', async (req, res) => {
+  const { date, promotion } = req.body; // Expecting date in YYYY-MM-DD format
+
+  try {
+    const events = await fetchEventsForDay(date, promotion);
+    // Fetch clock-in records from your database for the events
+    const clockIns = await getClockInsForEvents(db, events); // Implement this function
+
+    // Combine events with clock-in records
+    const eventsWithClockIns = events.map(event => ({
+      ...event,
+      clockIns: clockIns.filter(clockIn => clockIn != null ? clockIn.event_id === event.id : false),
+    }));
+
+    res.json(eventsWithClockIns);
+  } catch (error) {
+    console.error('Error fetching events:', error);
+    res.status(500).send('Error fetching events');
+  }
+});
+
+// Get clocked-in events for a specific user
+app.get('/clockedInEvents', (req, res) => {
+  const { email } = req.query; // Get the email from the query parameters
+
+  // Check if email is provided
+  if (!email) {
+    return res.status(400).send("Email is required");
+  }
+
+  // Query the clockins table to get clocked-in events for the user
+  db.all("SELECT event_id FROM clockins WHERE email = ?", [email], (err, rows) => {
+    if (err) {
+      console.error("Error fetching clocked-in events:", err);
+      return res.status(500).send("Error fetching clocked-in events");
+    }
+
+    // Extract event IDs from the rows
+    const clockedInEventIds = rows.map(row => row.event_id);
+
+    // Send the list of clocked-in event IDs as the response
+    res.status(200).json(clockedInEventIds);
+  });
+});
+
+// Get clock-ins by promotion
+app.get('/clockins-by-promotion', async (req, res) => {
+  const { promotion } = req.query;
+
+  const now = new Date(); // Current date and time
+  const lessons = await fetchEventsByDateRange(promotion, getStartOfSchoolYear(), now.toISOString());
+  const absences = await countAbsencesByPromotion(lessons, promotion);
+  /*
+  * absences = {'studid': {'name': str, 'absence_count': int}, {'studid': {'name': str, 'absence_count': int}, ...}
+  */
+  let result = [];
+  for(const studid in absences) {
+    result.push(absences[studid]);
+  }
+  res.status(200).json(result);
+});
+
+// Get clock-ins by user
+app.get('/clockins-by-user', (req, res) => {
+  const { etudiantid } = req.query;
+  db.get("SELECT * FROM users WHERE etudiantid = ?", [etudiantid], async (err, user) => {
+    if (err || !user) {
+      console.error("Error user:", err);
+      return res.status(500).send("Error user");
+    }
+
+    const now = new Date(); // Current date and time
+    const lessons = await fetchEventsByDateRange(user.promotion, getStartOfSchoolYear(), now.toISOString());
+    const presenceSheet = await listAbsencesByUser(lessons, user.etudiantid )
+
+    res.status(200).json(presenceSheet);
+  });
+});
+
+// Get clock-ins by year
+app.get('/clockins-by-year', (req, res) => {
+  const { year } = req.query;
+
+  db.all("SELECT * FROM clockins WHERE strftime('%Y', timestamp) = ?", [year], (err, rows) => {
+    if (err) {
+      console.error("Error fetching clock-ins by year:", err);
+      return res.status(500).send("Error fetching clock-ins");
+    }
+    res.status(200).json(rows);
+  });
+});
+
+// Get clock-ins by month
+app.get('/clockins-by-month', (req, res) => {
+  const { month } = req.query;
+
+  db.all("SELECT * FROM clockins WHERE strftime('%m', timestamp) = ?", [month], (err, rows) => {
+    if (err) {
+      console.error("Error fetching clock-ins by month:", err);
+      return res.status(500).send("Error fetching clock-ins");
+    }
+    res.status(200).json(rows);
+  });
+});
+
+app.get('/students', (req, res) => {
+  const { promotion } = req.query; // Get the promotion from the query parameters
+
+  if(promotion == null) {
+    db.all("SELECT nom, prenom, etudiantid FROM etudiants", (err, rows) => {
+      if (err) return res.status(500).send("Error fetching students");
+      res.status(200).json(rows);
+    });
+  } else {
+    getStudentsByPromotion(db, promotion).then(students => {
+      res.status(200).json(students);
+    });
+  }
+});
+
+// Get events by promotion or student and date
+app.get('/events', checkAdminAccess, async (req, res) => {
+  const { promotion, etudiantid, nom, prenom, date } = req.query;
+
+  try {
+    let query = 'SELECT * FROM events WHERE date(start) = ?';
+    let params = [date];
+
+    if (promotion) {
+      query += ' AND promotion = ?';
+      params.push(promotion);
+    } else if (etudiantid || (nom && prenom)) {
+      query += ' AND id IN (SELECT event_id FROM event_students WHERE student_id = ?)';
+      if (etudiantid) {
+        params.push(etudiantid);
+      } else {
+        const student = await new Promise((resolve, reject) => {
+          db.get('SELECT id FROM students WHERE nom = ? AND prenom = ?', [nom, prenom], (err, row) => {
+            if (err) reject(err);
+            resolve(row);
+          });
+        });
+        if (student) {
+          params.push(student.id);
+        } else {
+          return res.status(404).send('Student not found');
+        }
+      }
+    }
+
+    const events = await new Promise((resolve, reject) => {
+      db.all(query, params, (err, rows) => {
+        if (err) reject(err);
+        resolve(rows);
+      });
+    });
+
+    res.status(200).json(events);
+  } catch (error) {
+    console.error('Error fetching events:', error);
+    res.status(500).send('Error fetching events');
+  }
+});
+
+// Add clockin for a user or promotion
+app.post('/add-clockin', checkAdminAccess, async (req, res) => {
+  const { promotion, etudiantid, eventId } = req.body;
+
+  try {
+    if (etudiantid) {
+      // Add clockin for a specific student
+      await new Promise((resolve, reject) => {
+        db.run('INSERT INTO clockins (user_id, event_id, timestamp) VALUES (?, ?, ?)', [etudiantid, eventId, new Date().toISOString()], (err) => {
+          if (err) reject(err);
+          resolve();
+        });
+      });
+    } else if (promotion) {
+      // Add clockin for all students in the promotion
+      const students = await new Promise((resolve, reject) => {
+        db.all('SELECT etudiantid FROM etudiants WHERE designationlong = ?', [promotion], (err, rows) => {
+          if (err) reject(err);
+          resolve(rows);
+        });
+      });
+
+      const promises = students.map(student => {
+        return new Promise((resolve, reject) => {
+          db.run('INSERT INTO clockins (user_id, event_id, timestamp) VALUES (?, ?, ?)', [student.etudiantid, eventId, new Date().toISOString()], (err) => {
+            if (err) reject(err);
+            resolve();
+          });
+        });
+      });
+
+      await Promise.all(promises);
+    }
+
+    res.status(200).send('Clockin added successfully');
+  } catch (error) {
+    console.error('Error adding clockin:', error);
+    res.status(500).send('Error adding clockin');
+  }
+});
+
+// Get absence count by promotion
+app.get('/absence-count-by-promotion', checkAdminAccess, async (req, res) => {
+  const { promotion } = req.query;
+
+  // get N events for each group (no matter the student)
+  groups = ["Gr1", "Gr2", "Gr3", "Gr4"]
+  nEventsByGroup = {}
+  for (group of groups) {
+    let events = await fetchCalendarEventsWholeYearUntilNow(promotion, group)
+    nEventsByGroup[group] = events.length
+  }
+
+  const students = await getStudentsByPromotion(db, promotion);
+  for(let student of students) {
+    student.absence_count = 0
+    
+  }
+
+
+});
+
+app.get('/absence-count-by-promotion-old', checkAdminAccess, async (req, res) => {
+  const { promotion } = req.query;
+  console.log("lets go")
+  try {
+
+    const now = new Date(); // Current date and time
+    const lessons = await fetchEventsByDateRange(promotion, getStartOfSchoolYear(), now.toISOString());
+    const absences = await countAbsencesByPromotion(lessons, promotion);
+
+    let result = [];
+    for (const studid in absences) {
+      result.push({
+        studentId: studid,
+        name: absences[studid].name,
+        absenceCount: absences[studid].absence_count
+      });
+    }
+    res.status(200).json(result);
+  } catch (error) {
+    console.error('Error fetching absence count by promotion:', error);
+    res.status(500).send('Error fetching absence count by promotion');
+  }
+});
+
+// Get absence details by student
+app.get('/absence-details-by-student', checkAdminAccess, async (req, res) => {
+  const { etudiantid } = req.query;
+
+  try {
+    const student = await new Promise((resolve, reject) => {
+      db.get('SELECT * FROM etudiants WHERE etudiantid = ?', [etudiantid], (err, row) => {
+        if (err) reject(err);
+        resolve(row);
+      });
+    });
+
+    if (!student) {
+      return res.status(404).send('Student not found');
+    }
+
+    const now = new Date(); // Current date and time
+    const lessons = await fetchEventsByDateRange(student.designationlong, getStartOfSchoolYear(), now.toISOString());
+    const presenceSheet = await listAbsencesByUser(lessons, etudiantid);
+    res.status(200).json(presenceSheet);
+  } catch (error) {
+    console.error('Error fetching absence details by student:', error);
+    res.status(500).send('Error fetching absence details by student');
+  }
+});
+
+// Mark student as present
+app.post('/mark-as-present', checkAdminAccess, async (req, res) => {
+  const { etudiantid, eventId, promotion } = req.body;
+
+  try {
+    // Fetch the event details from Google Calendar
+    // const calendarUrl = getCalendarUrl(promotion);
+    // const eventDetailsUrl = `${calendarUrl}&eventId=${eventId}`;
+    const eventDetailsUrl = getCalendarEventUrl(promotion, eventId)
+    const response = await axios.get(eventDetailsUrl);
+    const event = response.data;
+
+    if (!event) {
+      return res.status(404).send('Event not found');
+    }
+    console.log("event : ", event)
+    const eventStartTime = new Date(event.start.dateTime).toISOString();
+
+    await new Promise((resolve, reject) => {
+      db.run('INSERT INTO clockins (user_id, event_id, timestamp) VALUES (?, ?, ?)', [etudiantid, eventId, eventStartTime], (err) => {
+        if (err) reject(err);
+        resolve();
+      });
+    });
+
+    res.status(200).send('Student marked as present');
+  } catch (error) {
+    console.error('Error marking student as present:', error);
+    res.status(500).send('Error marking student as present');
+  }
+});
+
+app.listen(port, () => {
+  console.log(`Server running at http://localhost:${port}/`);
+});
+
