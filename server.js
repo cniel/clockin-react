@@ -1,19 +1,16 @@
-require('dotenv').config();
+import dotenv from 'dotenv';
+dotenv.config();
 
-const fs = require('fs');
-const express = require('express');
-const sqlite3 = require('sqlite3').verbose();
-const nodemailer = require('nodemailer');
-const bcrypt = require('bcryptjs');
-const cors = require('cors'); // Import cors
-const crypto = require('crypto');
-const path = require('path');
-const moment = require('moment-timezone');
-const qrcode = require('qrcode');
-const { google } = require('googleapis');
-const axios = require('axios');
-
+import express from 'express';
+import sqlite3 from 'sqlite3';
+import nodemailer from 'nodemailer';
+import bcrypt from 'bcryptjs';
+import cors from 'cors'; // Import cors
+import crypto from 'crypto';
+import moment from 'moment-timezone';
+import axios from 'axios';
 const app = express();
+
 const port = 3000;
 
 app.use(express.json());
@@ -74,8 +71,8 @@ const formatTime = (date) => date.toLocaleTimeString('fr-FR', {
 
 
 const getStartOfSchoolYear = () => {
-  const now = new Date();
   let startOfSchoolYear;
+  const now = new Date(); // Note: Month is zero-based (0 = January, 11 = December)
   if (now.getMonth() >= 7 && now.getMonth() <= 11) { // Between August (7) and December (11)
     startOfSchoolYear = new Date(now.getFullYear(), 7, 20); // August 20 of the current year
   } else { // Between January (0) and July (6)
@@ -114,6 +111,39 @@ const sendEmail = (email, password) => {
   });
 };
 
+const getEmailByEtuId = async(db, etudiantid) => {
+  // get email from etudiantid
+  let studentEmail = await new Promise((resolve, reject) => {
+    db.get('SELECT email FROM users WHERE etudiantid = ?', [etudiantid], (err, row) => {
+      if (err) reject(err);
+      resolve(row ? row.email : null);
+    });
+  });
+
+  if (!studentEmail) {
+    studentEmail = ''
+  }
+  return studentEmail;
+}
+
+const getStudentById = async(db, id) => {
+  const student = await new Promise((resolve, reject) => {
+    db.get('SELECT e.*, u.email, u.group_name FROM etudiants e LEFT JOIN users u ON e.etudiantid = u.etudiantid WHERE e.etudiantid = ?', [id], (err, row) => {
+      if (err) reject(err);
+      resolve(row);
+    });
+  });
+
+  return student;
+}
+
+const fetchEvent = async (promotion, eventId) => {
+  const eventDetailsUrl = getCalendarEventUrl(promotion, eventId)
+  const response = await axios.get(eventDetailsUrl);
+  const event = response.data;
+  return event;
+}
+
 // Fetch events (lessons) from the calendar
 const fetchEventsByDateRange = async (promotion, startDatetime, endDatetime) => {
   try {
@@ -134,8 +164,8 @@ const fetchEventsByDateRange = async (promotion, startDatetime, endDatetime) => 
 const fetchCalendarEvents = async (promotion) => {
   let calendarUrl = getCalendarUrl(promotion);
 
-  const startOfDay = moment().tz('Europe/Paris').subtract(1, 'days').startOf('day').format();  // 00:00 yesterday
-  const endOfDay = moment().tz('Europe/Paris').subtract(1, 'days').endOf('day').format();
+  const startOfDay = moment().tz('Europe/Paris').startOf('day').format();
+  const endOfDay = moment().tz('Europe/Paris').endOf('day').format();
 
   calendarUrl += `&timeMin=${encodeURIComponent(startOfDay)}`;
   calendarUrl += `&timeMax=${encodeURIComponent(endOfDay)}`;
@@ -148,14 +178,14 @@ const fetchCalendarEvents = async (promotion) => {
 // Function to fetch events from Google Calendar
 const fetchCalendarEventsWholeYearUntilNow = async (promotion, groupName) => {
 
-  const now = new Date(); // Current date and time
-  const events = await fetchEventsByDateRange(promotion, getStartOfSchoolYear(), now.toISOString());
+  const now = new Date().toISOString(); // Current date and time
+  const events = await fetchEventsByDateRange(promotion, getStartOfSchoolYear(), now);
 
-  return getRelevantEvents(events, groupName, ongoingEventsFilter=false);
+  return getRelevantEvents(events, groupName, false);
 };
 
 const filterOngoingEvents = (events) => {
-  let now = moment.tz('2025-03-12 14:45', 'Europe/Paris');  // Current time in France
+  let now = moment.tz('2025-03-13 14:45', 'Europe/Paris');  // Current time in France
 
   return events.filter(event => {
     const eventStart = moment(event.start.dateTime);
@@ -247,7 +277,7 @@ const getClockInsForEventsByUserId = async(db, events, userId) => {
 
   const clockins = await Promise.all(events.map(event =>
     new Promise((resolve, reject) => {
-      db.get('SELECT * FROM clockins WHERE event_id = ? and userId = ?', event.id, userId, (err, rows) => {
+      db.get('SELECT * FROM clockins WHERE event_id = ? and user_id = ?', event.id, userId, (err, rows) => {
         if (err) {
           return reject(err);
         }
@@ -282,7 +312,7 @@ const fetchEventsForDay = async(date, promotion) => {
 
   let calendarUrl = getCalendarUrl(promotion);
   calendarUrl += `&timeMin=${encodeURIComponent(startOfDay)}`;
-  calendarUrl += `&timeMin=${encodeURIComponent(endOfDay)}`;
+  calendarUrl += `&timeMax=${encodeURIComponent(endOfDay)}`;
 
   const response = await axios.get(calendarUrl);
 
@@ -317,9 +347,6 @@ const countAbsencesByPromotion = async (events, promotion) => {
     students.forEach(student => {
       const relevantEvents = getRelevantEvents([eventWithClockIns], student.group_name);
       if (relevantEvents.length > 0 && !studentsWhoClockedIn.includes(student.etudiantid)) {
-        studentAbsences[student.etudiantid].absence_count++;
-      }
-      if (!studentsWhoClockedIn.includes(student.etudiantid)) {
         studentAbsences[student.etudiantid].absence_count++;
       }
     });
@@ -458,23 +485,6 @@ app.post('/login', (req, res) => {
   });
 });
 
-// Clock in
-app.post('/clockin', (req, res) => {
-  const { email, eventId, eventSummary } = req.body;
-
-  db.get("SELECT * FROM users WHERE email = ?", [email], (err, row) => {
-    if (err || !row) {
-      return res.status(400).send("User not found");
-    }
-    db.run("INSERT INTO clockins (user_id, email, event_id, event_name) VALUES (?, ?, ?, ?)", [row.id, email, eventId, eventSummary], function (err) {
-      if (err) {
-        return res.status(500).send("Error clocking in");
-      }
-      res.status(200).send("Clocked in successfully");
-    });
-  });
-});
-
 // Logout user
 app.post('/logout', (req, res) => {
   const { token } = req.body;
@@ -484,6 +494,23 @@ app.post('/logout', (req, res) => {
       return res.status(500).send("Error logging out");
     }
     res.status(200).send("Logout successful");
+  });
+});
+
+// Clock in
+app.post('/clockin', (req, res) => {
+  const { email, eventId, eventSummary } = req.body;
+
+  db.get("SELECT * FROM users WHERE email = ?", [email], (err, row) => {
+    if (err || !row) {
+      return res.status(400).send("User not found");
+    }
+    db.run("INSERT INTO clockins (user_id, email, event_id, event_name) VALUES (?, ?, ?, ?)", [row.etudiantid, email, eventId, eventSummary], function (err) {
+      if (err) {
+        return res.status(500).send("Error clocking in");
+      }
+      res.status(200).send("Clocked in successfully");
+    });
   });
 });
 
@@ -611,14 +638,31 @@ app.get('/events', checkAdminAccess, async (req, res) => {
 });
 
 // Add clockin for a user or promotion
+/*
 app.post('/add-clockin', checkAdminAccess, async (req, res) => {
-  const { promotion, etudiantid, eventId } = req.body;
+  const { promotion, etudiantid, eventId, eventName } = req.body;
 
   try {
     if (etudiantid) {
+      // get email from etudiantid
+      const studentEmail = await new Promise((resolve, reject) => {
+        db.get('SELECT email FROM users WHERE etudiantid = ?', [etudiantid], (err, row) => {
+          if (err) reject(err);
+          resolve(row ? row.email : null);
+        });
+      });
+
+      if (!studentEmail) {
+        studentEmail = ''
+      }
+
+      // fetch start of event
+      const event = fetchEvent(promotion, eventId);
+      const eventStartTime = new Date(event.start.dateTime).toISOString();
+
       // Add clockin for a specific student
       await new Promise((resolve, reject) => {
-        db.run('INSERT INTO clockins (user_id, event_id, timestamp) VALUES (?, ?, ?)', [etudiantid, eventId, new Date().toISOString()], (err) => {
+        db.run('INSERT INTO clockins (user_id, email, event_id, event_name, timestamp) VALUES (?, ?, ?)', [etudiantid, studentEmail, eventId, eventName, eventStartTime], (err) => {
           if (err) reject(err);
           resolve();
         });
@@ -650,15 +694,17 @@ app.post('/add-clockin', checkAdminAccess, async (req, res) => {
     res.status(500).send('Error adding clockin');
   }
 });
+*/
 
 // Get absence count by promotion
 app.get('/absence-count-by-promotion', checkAdminAccess, async (req, res) => {
   const { promotion } = req.query;
 
   // get N events for each group (no matter the student)
-  groups = ["Gr1", "Gr2", "Gr3", "Gr4"]
-  nEventsByGroup = {}
-  for (group of groups) {
+  const groups = ["Gr1", "Gr2", "Gr3", "Gr4"]
+  let nEventsByGroup = {}
+
+  for (let group of groups) {
     let events = await fetchCalendarEventsWholeYearUntilNow(promotion, group)
     nEventsByGroup[group] = events.length
   }
@@ -671,7 +717,7 @@ app.get('/absence-count-by-promotion', checkAdminAccess, async (req, res) => {
   for(let student of students) {
     let absenceCount = 0
 
-    // get the number of events for the current student during the current school year
+    // get the number of events for the student during the current school year
     const studentClockIns = await getClockInsByUserIdForCurrentScoolYear(db, student.etudiantid);
     let nStudClockins = 0
     if (studentClockIns != null && studentClockIns.length != null) {
@@ -699,20 +745,34 @@ app.get('/absence-details-by-student', checkAdminAccess, async (req, res) => {
   const { etudiantid } = req.query;
 
   try {
-    const student = await new Promise((resolve, reject) => {
-      db.get('SELECT * FROM etudiants WHERE etudiantid = ?', [etudiantid], (err, row) => {
-        if (err) reject(err);
-        resolve(row);
+    let student;
+
+    try {
+        student = await getStudentById(db, etudiantid);
+    } catch (error) {
+        console.error('Error fetching student by ID:', error);
+        return res.status(500).send('Error fetching student by ID');
+    }
+
+    console.log("student : ", student)
+
+    let events = await fetchCalendarEventsWholeYearUntilNow(student.designationlong, student.group_name || "Gr1")
+    let studentClockIns = await getClockInsByUserIdForCurrentScoolYear(db, student.etudiantid);
+    studentClockIns = studentClockIns.map(clockIn => clockIn.event_id);
+
+    console.log('studentClockIns: ', studentClockIns)
+    // test for student presence for each event
+    let presenceSheet = []
+    events.forEach((fetched_event) => {
+      presenceSheet.push({
+        'eventId': fetched_event.id,
+        'eventTitle': fetched_event.summary,
+        'start': `${formatDate(new Date(fetched_event.start.dateTime))} ${formatTime(new Date(fetched_event.start.dateTime))}`,
+        'end': `${formatDate(new Date(fetched_event.end.dateTime))} ${formatTime(new Date(fetched_event.end.dateTime))}`,
+        'was_present': studentClockIns.includes(fetched_event.id)
       });
     });
 
-    if (!student) {
-      return res.status(404).send('Student not found');
-    }
-
-    const now = new Date(); // Current date and time
-    const lessons = await fetchEventsByDateRange(student.designationlong, getStartOfSchoolYear(), now.toISOString());
-    const presenceSheet = await listAbsencesByUser(lessons, etudiantid);
     res.status(200).json(presenceSheet);
   } catch (error) {
     console.error('Error fetching absence details by student:', error);
@@ -720,26 +780,24 @@ app.get('/absence-details-by-student', checkAdminAccess, async (req, res) => {
   }
 });
 
-// Mark student as present
+// Mark student as present (admin adds a clockin to a studient)
 app.post('/mark-as-present', checkAdminAccess, async (req, res) => {
-  const { etudiantid, eventId, promotion } = req.body;
+  const { etudiantid, eventId, eventTitle, promotion } = req.body;
 
   try {
     // Fetch the event details from Google Calendar
-    // const calendarUrl = getCalendarUrl(promotion);
-    // const eventDetailsUrl = `${calendarUrl}&eventId=${eventId}`;
-    const eventDetailsUrl = getCalendarEventUrl(promotion, eventId)
-    const response = await axios.get(eventDetailsUrl);
-    const event = response.data;
-
+    const event = await fetchEvent(promotion, eventId);
+    console.log("event: ", event)
     if (!event) {
       return res.status(404).send('Event not found');
     }
-    console.log("event : ", event)
     const eventStartTime = new Date(event.start.dateTime).toISOString();
 
+    // get email from etudiantid
+    const studentEmail = await getEmailByEtuId(db, etudiantid);
+
     await new Promise((resolve, reject) => {
-      db.run('INSERT INTO clockins (user_id, event_id, timestamp) VALUES (?, ?, ?)', [etudiantid, eventId, eventStartTime], (err) => {
+      db.run('INSERT INTO clockins (user_id, email, event_id, event_name, timestamp) VALUES (?, ?, ?, ?, ?)', [etudiantid, studentEmail, eventId, eventTitle, eventStartTime], (err) => {
         if (err) reject(err);
         resolve();
       });

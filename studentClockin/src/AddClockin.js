@@ -43,7 +43,8 @@ const AddClockin = () => {
       const response = await axios.post('http://localhost:3000/add-clockin', {
         promotion,
         etudiantid,
-        eventId: selectedEvent
+        eventId: selectedEvent.split("@@@")[0],
+        eventName: selectedEvent.split("@@@")[1]
       }, {
         headers: { 'x-access-code': accessCode }
       });
@@ -156,7 +157,7 @@ const AddClockin = () => {
           >
             <option value="" disabled>Select an event</option>
             {events.map(event => (
-              <option key={event.id} value={event.id}>
+              <option key={event.id} value={event.id + "@@@" + event.title}>
                 {event.title} - {event.start}
               </option>
             ))}

@@ -56,11 +56,12 @@ const AbsenceSummary = () => {
     setIsAuthenticated(true);
   };
 
-  const handleMarkAsPresent = async (eventId) => {
+  const handleMarkAsPresent = async (eventId, eventTitle) => {
     try {
       await axios.post('http://localhost:3000/mark-as-present', {
         etudiantid: selectedStudent,
         eventId,
+        eventTitle,
         promotion
       }, {
         headers: { 'x-access-code': accessCode }
@@ -144,7 +145,7 @@ const AbsenceSummary = () => {
                     {!detail.was_present && (
                       <button
                         className="btn waves-effect waves-light"
-                        onClick={() => handleMarkAsPresent(detail.eventId)}
+                        onClick={() => handleMarkAsPresent(detail.eventId, detail.eventTitle)}
                       >
                         Mark as Present
                       </button>
