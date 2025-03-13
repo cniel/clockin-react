@@ -162,10 +162,11 @@ const AbsenceSummary = () => {
           <table className="highlight">
             <thead>
               <tr>
-                <th>Student ID</th>
-                <th>Name</th>
-                <th>Absence Count</th>
-                <th>Details</th>
+                <th>ID</th>
+                <th>Nom</th>
+                <th>Prénom</th>
+                <th>Nombre d'absences</th>
+                <th>Détails</th>
               </tr>
             </thead>
             <tbody>
@@ -173,10 +174,11 @@ const AbsenceSummary = () => {
                 <tr key={student.studentId}>
                   <td>{student.studentId}</td>
                   <td>{student.name}</td>
+                  <td>{student.firstname}</td>
                   <td>{student.absenceCount}</td>
                   <td>
                     <button className="btn waves-effect waves-light" onClick={() => handleStudentClick(student.studentId)}>
-                      View Details
+                      Détails
                     </button>
                   </td>
                 </tr>

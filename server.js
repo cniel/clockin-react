@@ -164,7 +164,7 @@ const filterOngoingEvents = (events) => {
   });
 }
 
-function matchGroup(input, text) {
+const matchGroup = (input, text) => {
   if (!input || !text) return false; // Vérifiez que les arguments sont définis
 
   const numberMatch = input.match(/\d+/); // Extraction du nombre dans "Gr2"
@@ -201,8 +201,33 @@ const getRelevantEvents = (events, group_name, ongoingEventsFilter=true) => {
   });
 };
 
+const getClockInsByUserIdForCurrentScoolYear = async (db, userId) => {
+
+  const now = new Date().toISOString(); // Current date and time
+  const startOfSchoolYear = getStartOfSchoolYear();
+
+  const clockins = await new Promise((resolve, reject) => {
+    try {
+      //const q = "SELECT DISTINCT event_id FROM clockins WHERE user_id = '" + userId + "' AND timestamp BETWEEN '" + startOfSchoolYear  + "' AND '" + now + "'"
+      //db.all(q, (err, rows) => {
+      db.all('SELECT DISTINCT event_id FROM clockins WHERE user_id = ? AND timestamp BETWEEN ? AND ?', [userId, startOfSchoolYear, now], (err, rows) => {
+        if (err) {
+          return reject(err);
+        }
+
+        resolve(rows);
+      });
+    } catch (error) {
+      console.error('Error fetching clockins:', error);
+      reject(error);
+    }
+  });
+
+  return clockins;
+}
+
 // Function to get clock-in records for events
-async function getClockInsForEvents(db, events) {
+const getClockInsForEvents = async (db, events) => {
 
   const clockins = await Promise.all(events.map(event =>
     new Promise((resolve, reject) => {
@@ -218,7 +243,7 @@ async function getClockInsForEvents(db, events) {
   return clockins.flat();
 }
 
-async function getClockInsForEventsByUserId(db, events, userId) {
+const getClockInsForEventsByUserId = async(db, events, userId) => {
 
   const clockins = await Promise.all(events.map(event =>
     new Promise((resolve, reject) => {
@@ -234,7 +259,7 @@ async function getClockInsForEventsByUserId(db, events, userId) {
   return clockins.flat();
 }
 
-async function getStudentsByPromotion(db, promotion) {
+const getStudentsByPromotion = async (db, promotion) => {
   const students = await new Promise((resolve, reject) => {
     db.all('SELECT e.nom, e.prenom, e.etudiantid, u.group_name FROM etudiants e LEFT JOIN users u on u.etudiantid = e.etudiantid where designationlong=? ORDER BY nom', promotion, (err, rows) => {
       if (err) {
@@ -249,7 +274,7 @@ async function getStudentsByPromotion(db, promotion) {
 }
 
 // Function to fetch events for a specific day
-async function fetchEventsForDay(date, promotion) {
+const fetchEventsForDay = async(date, promotion) => {
 
   const startOfDay = new Date(date);
   const endOfDay = new Date(date);
@@ -722,13 +747,35 @@ app.get('/absence-count-by-promotion', checkAdminAccess, async (req, res) => {
     nEventsByGroup[group] = events.length
   }
 
+  console.log("# nEventsByGroup : ", nEventsByGroup)
+
+  // count absences for each student
+  let result = [];
   const students = await getStudentsByPromotion(db, promotion);
   for(let student of students) {
-    student.absence_count = 0
-    
+    let absenceCount = 0
+
+    // get the number of events for the current student during the current school year
+    const studentClockIns = await getClockInsByUserIdForCurrentScoolYear(db, student.etudiantid);
+    let nStudClockins = 0
+    if (studentClockIns != null && studentClockIns.length != null) {
+      nStudClockins = studentClockIns.length
+    }
+
+    if( student.group_name == null) {
+      absenceCount = nEventsByGroup["Gr1"] - nStudClockins; // default to Gr1 to get a count
+    } else {
+      absenceCount = nEventsByGroup[student.group_name] - nStudClockins;
+    }
+    result.push({
+      studentId: student.etudiantid,
+      name: student.nom,
+      firstname: student.prenom,
+      absenceCount: absenceCount
+    });
   }
 
-
+  return res.status(200).json(result);
 });
 
 app.get('/absence-count-by-promotion-old', checkAdminAccess, async (req, res) => {
