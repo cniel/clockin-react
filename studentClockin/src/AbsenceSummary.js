@@ -75,6 +75,23 @@ const AbsenceSummary = () => {
     }
   };
 
+  const handleDeleteClockin = async (eventId) => {
+    try {
+      await axios.post('http://localhost:3000/delete-clockin', {
+        etudiantid: selectedStudent,
+        eventId
+      }, {
+        headers: { 'x-access-code': accessCode }
+      });
+      alert('Clockin deleted');
+      // Refresh absence details
+      handleStudentClick(selectedStudent);
+    } catch (error) {
+      console.error('Error deleting clockin:', error);
+      alert('Error deleting clockin');
+    }
+  };
+
   if (!isAuthenticated) {
     return (
       <div className="container">
@@ -148,6 +165,14 @@ const AbsenceSummary = () => {
                         onClick={() => handleMarkAsPresent(detail.eventId, detail.eventTitle)}
                       >
                         Mark as Present
+                      </button>
+                    )}
+                    {detail.was_present && (
+                      <button
+                        className="btn red waves-effect waves-light"
+                        onClick={() => handleDeleteClockin(detail.eventId)}
+                      >
+                        Delete Clockin
                       </button>
                     )}
                   </td>

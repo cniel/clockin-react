@@ -289,6 +289,13 @@ const getClockInsForEventsByUserId = async(db, events, userId) => {
   return clockins.flat();
 }
 
+// Function to delete clockin from the database
+const deleteClockin = async (etudiantid, eventId) => {
+  // Replace with your database logic
+  // Example using a hypothetical database function
+  await db.run('DELETE FROM clockins WHERE user_id = ? AND event_id = ?', [etudiantid, eventId]);
+}
+
 const getStudentsByPromotion = async (db, promotion) => {
   const students = await new Promise((resolve, reject) => {
     db.all('SELECT e.nom, e.prenom, e.etudiantid, u.group_name FROM etudiants e LEFT JOIN users u on u.etudiantid = e.etudiantid where designationlong=? ORDER BY nom', promotion, (err, rows) => {
@@ -807,6 +814,23 @@ app.post('/mark-as-present', checkAdminAccess, async (req, res) => {
   } catch (error) {
     console.error('Error marking student as present:', error);
     res.status(500).send('Error marking student as present');
+  }
+});
+
+// Route to delete clockin
+app.post('/delete-clockin', checkAdminAccess, async (req, res) => {
+  const { etudiantid, eventId } = req.body;
+
+  console.log(etudiantid + " " + eventId )
+
+  try {
+
+    // Assuming you have a function to delete clockin from the database
+    await deleteClockin(etudiantid, eventId);
+    res.status(200).json({ message: 'Clockin deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting clockin:', error);
+    res.status(500).json({ message: 'Error deleting clockin' });
   }
 });
 
