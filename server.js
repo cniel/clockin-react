@@ -507,13 +507,13 @@ app.post('/loadallevents', (req, res) => {
 app.post('/loadevents', (req, res) => {
   const { email } = req.body;
 
-  db.get("SELECT * FROM users WHERE email = ?", [email], (err, row) => {
-    if (err || !row) {
+  db.get("SELECT * FROM users WHERE email = ?", [email], (err, user) => {
+    if (err || !user) {
       return res.status(400).send("User not found");
     }
 
-    const promotion = row.promotion;
-    const group_name = row.group_name;
+    const promotion = user.promotion;
+    const group_name = user.group_name;
 
     // Fetch calendar events for the user's promotion
     fetchCalendarEvents(promotion).then(events => {
