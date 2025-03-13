@@ -524,31 +524,7 @@ app.post('/loadevents', (req, res) => {
       console.error("Error fetching calendar events:", error);
       res.status(500).send({ message: "Error fetching calendar events", error });
     });
-
   })
-
-});
-
-// Endpoint to get events and clock-ins for a specific day
-app.post('/events-for-day', async (req, res) => {
-  const { date, promotion } = req.body; // Expecting date in YYYY-MM-DD format
-
-  try {
-    const events = await fetchEventsForDay(date, promotion);
-    // Fetch clock-in records from your database for the events
-    const clockIns = await getClockInsForEvents(db, events); // Implement this function
-
-    // Combine events with clock-in records
-    const eventsWithClockIns = events.map(event => ({
-      ...event,
-      clockIns: clockIns.filter(clockIn => clockIn != null ? clockIn.event_id === event.id : false),
-    }));
-
-    res.json(eventsWithClockIns);
-  } catch (error) {
-    console.error('Error fetching events:', error);
-    res.status(500).send('Error fetching events');
-  }
 });
 
 // Get clocked-in events for a specific user
@@ -572,66 +548,6 @@ app.get('/clockedInEvents', (req, res) => {
 
     // Send the list of clocked-in event IDs as the response
     res.status(200).json(clockedInEventIds);
-  });
-});
-
-// Get clock-ins by promotion
-app.get('/clockins-by-promotion', async (req, res) => {
-  const { promotion } = req.query;
-
-  const now = new Date(); // Current date and time
-  const lessons = await fetchEventsByDateRange(promotion, getStartOfSchoolYear(), now.toISOString());
-  const absences = await countAbsencesByPromotion(lessons, promotion);
-  /*
-  * absences = {'studid': {'name': str, 'absence_count': int}, {'studid': {'name': str, 'absence_count': int}, ...}
-  */
-  let result = [];
-  for(const studid in absences) {
-    result.push(absences[studid]);
-  }
-  res.status(200).json(result);
-});
-
-// Get clock-ins by user
-app.get('/clockins-by-user', (req, res) => {
-  const { etudiantid } = req.query;
-  db.get("SELECT * FROM users WHERE etudiantid = ?", [etudiantid], async (err, user) => {
-    if (err || !user) {
-      console.error("Error user:", err);
-      return res.status(500).send("Error user");
-    }
-
-    const now = new Date(); // Current date and time
-    const lessons = await fetchEventsByDateRange(user.promotion, getStartOfSchoolYear(), now.toISOString());
-    const presenceSheet = await listAbsencesByUser(lessons, user.etudiantid )
-
-    res.status(200).json(presenceSheet);
-  });
-});
-
-// Get clock-ins by year
-app.get('/clockins-by-year', (req, res) => {
-  const { year } = req.query;
-
-  db.all("SELECT * FROM clockins WHERE strftime('%Y', timestamp) = ?", [year], (err, rows) => {
-    if (err) {
-      console.error("Error fetching clock-ins by year:", err);
-      return res.status(500).send("Error fetching clock-ins");
-    }
-    res.status(200).json(rows);
-  });
-});
-
-// Get clock-ins by month
-app.get('/clockins-by-month', (req, res) => {
-  const { month } = req.query;
-
-  db.all("SELECT * FROM clockins WHERE strftime('%m', timestamp) = ?", [month], (err, rows) => {
-    if (err) {
-      console.error("Error fetching clock-ins by month:", err);
-      return res.status(500).send("Error fetching clock-ins");
-    }
-    res.status(200).json(rows);
   });
 });
 
