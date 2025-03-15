@@ -129,7 +129,7 @@ const Register = ({ setRegistered }) => {
         </div>
 
         <button type="submit" className="btn waves-effect waves-light">Enregistrer</button>
-        <button type="cancel" className="btn waves-effect waves-light" onClick={reinitialize}>Annuler</button>
+        <button type="cancel" className="btn waves-effect waves-light right" onClick={reinitialize}>Annuler</button>
       </form>
     </div>
   );

@@ -74,9 +74,9 @@ const getStartOfSchoolYear = () => {
   let startOfSchoolYear;
   const now = new Date(); // Note: Month is zero-based (0 = January, 11 = December)
   if (now.getMonth() >= 7 && now.getMonth() <= 11) { // Between August (7) and December (11)
-    startOfSchoolYear = new Date(now.getFullYear(), 7, 20); // August 20 of the current year
+    startOfSchoolYear = new Date(now.getFullYear(), 7, 10); // August 20 of the current year
   } else { // Between January (0) and July (6)
-    startOfSchoolYear = new Date(now.getFullYear() - 1, 7, 20); // August 20 of the previous year
+    startOfSchoolYear = new Date(now.getFullYear() - 1, 7, 10); // August 20 of the previous year
   }
 
   return startOfSchoolYear.toISOString();
@@ -151,6 +151,7 @@ const fetchEventsByDateRange = async (promotion, startDatetime, endDatetime) => 
     if (startDatetime) calendarUrl += `&timeMin=${encodeURIComponent(startDatetime)}`;
     if (endDatetime) calendarUrl += `&timeMax=${encodeURIComponent(endDatetime)}`;
 
+    calendarUrl += '&orderBy=startTime&singleEvents=true';
     const response = await axios.get(calendarUrl);
 
     return response.data.items;
@@ -169,6 +170,7 @@ const fetchCalendarEvents = async (promotion) => {
 
   calendarUrl += `&timeMin=${encodeURIComponent(startOfDay)}`;
   calendarUrl += `&timeMax=${encodeURIComponent(endOfDay)}`;
+  calendarUrl += '&orderBy=startTime&singleEvents=true';
 
   const response = await axios.get(calendarUrl);
 
@@ -181,7 +183,12 @@ const fetchCalendarEventsWholeYearUntilNow = async (promotion, groupName) => {
   const now = new Date().toISOString(); // Current date and time
   const events = await fetchEventsByDateRange(promotion, getStartOfSchoolYear(), now);
 
-  return getRelevantEvents(events, groupName, false);
+  const relevantEvents = getRelevantEvents(events, groupName, false);
+
+  // Sort events by start date
+  relevantEvents.sort((a, b) => new Date(a.start.dateTime) - new Date(b.start.dateTime));
+
+  return relevantEvents;
 };
 
 const filterOngoingEvents = (events) => {
@@ -256,38 +263,38 @@ const getClockInsByUserIdForCurrentScoolYear = async (db, userId) => {
   return clockins;
 }
 
-// Function to get clock-in records for events
-const getClockInsForEvents = async (db, events) => {
+// // Function to get clock-in records for events
+// const getClockInsForEvents = async (db, events) => {
 
-  const clockins = await Promise.all(events.map(event =>
-    new Promise((resolve, reject) => {
-      db.get('SELECT * FROM clockins INNER JOIN users ON clockins.user_id=users.id WHERE event_id = ?', event.id, (err, rows) => {
-        if (err) {
-          return reject(err);
-        }
-        resolve(rows); // Return the row for this event
-      });
-    })
-  ));
+//   const clockins = await Promise.all(events.map(event =>
+//     new Promise((resolve, reject) => {
+//       db.get('SELECT * FROM clockins INNER JOIN users ON clockins.user_id=users.id WHERE event_id = ?', event.id, (err, rows) => {
+//         if (err) {
+//           return reject(err);
+//         }
+//         resolve(rows); // Return the row for this event
+//       });
+//     })
+//   ));
 
-  return clockins.flat();
-}
+//   return clockins.flat();
+// }
 
-const getClockInsForEventsByUserId = async(db, events, userId) => {
+// const getClockInsForEventsByUserId = async(db, events, userId) => {
 
-  const clockins = await Promise.all(events.map(event =>
-    new Promise((resolve, reject) => {
-      db.get('SELECT * FROM clockins WHERE event_id = ? and user_id = ?', event.id, userId, (err, rows) => {
-        if (err) {
-          return reject(err);
-        }
-        resolve(rows); // Return the row for this event
-      });
-    })
-  ));
+//   const clockins = await Promise.all(events.map(event =>
+//     new Promise((resolve, reject) => {
+//       db.get('SELECT * FROM clockins WHERE event_id = ? and user_id = ?', event.id, userId, (err, rows) => {
+//         if (err) {
+//           return reject(err);
+//         }
+//         resolve(rows); // Return the row for this event
+//       });
+//     })
+//   ));
 
-  return clockins.flat();
-}
+//   return clockins.flat();
+// }
 
 // Function to delete clockin from the database
 const deleteClockin = async (etudiantid, eventId) => {
@@ -310,106 +317,129 @@ const getStudentsByPromotion = async (db, promotion) => {
   return students;
 }
 
-// Function to fetch events for a specific day
-const fetchEventsForDay = async(date, promotion) => {
+// Function to fetch the next event for a user
+const fetchNextEvent = async (promotion) => {
+  const now = new Date().toISOString(); // Current date and time
+  let calendarUrl = getCalendarUrl(promotion) 
+  calendarUrl += `&timeMin=${encodeURIComponent(now)}`
+  calendarUrl += '&orderBy=startTime&singleEvents=true&maxResults=1';
 
-  const startOfDay = new Date(date);
-  const endOfDay = new Date(date);
-  endOfDay.setDate(startOfDay.getDate() + 1); // End of the day
-
-  let calendarUrl = getCalendarUrl(promotion);
-  calendarUrl += `&timeMin=${encodeURIComponent(startOfDay)}`;
-  calendarUrl += `&timeMax=${encodeURIComponent(endOfDay)}`;
-
-  const response = await axios.get(calendarUrl);
-
-  return response.data.items;
-}
-
-const countAbsencesByPromotion = async (events, promotion) => {
-  const studentAbsences = {};
-
-  // Fetch all students from your database
-  const students = await getStudentsByPromotion(db, promotion);
-
-  // Initialize absence counts for each student
-  students.forEach(student => {
-    studentAbsences[student.etudiantid] = {
-      name: student.nom + " " + student.prenom,
-      absence_count: 0
-    };
-  });
-
-  // Get all events with students who clocked in
-  const clockIns = await getClockInsForEvents(db, events);
-  // Combine events with clock-in records
-  const eventsWithClockIns = events.map(event => ({
-    ...event,
-    clockIns: clockIns.filter(clockIn => clockIn != null ? clockIn.event_id === event.id : false),
-  }));
-
-  // for each event: for each student: count abscence
-  eventsWithClockIns.map((eventWithClockIns) => {
-    const studentsWhoClockedIn = eventWithClockIns.clockIns.map(ci => ci.etudiantid);
-    students.forEach(student => {
-      const relevantEvents = getRelevantEvents([eventWithClockIns], student.group_name);
-      if (relevantEvents.length > 0 && !studentsWhoClockedIn.includes(student.etudiantid)) {
-        studentAbsences[student.etudiantid].absence_count++;
-      }
-    });
-  });
-
-  return studentAbsences;
-}
-
-const listAbsencesByUser = async (events, etudiantid) => {
   try {
-    console.log("etudiantid : ", etudiantid)
-    const student = await new Promise((resolve, reject) => {
-      db.get('SELECT etudiants.*, email FROM etudiants LEFT join users ON etudiants.etudiantid = users.etudiantid WHERE etudiants.etudiantid=?', etudiantid, (err, student) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve(student);
-        }
-      });
-    });
+    const response = await axios.get(calendarUrl);
+    const events = response.data.items;
 
-    if (!student) {
-      throw new Error('Student not found');
+    if (events.length > 0) {
+      return events[0]; // Return the next event
+    } else {
+      return null; // No upcoming events
     }
-
-    let studentPresenceSheet = []; // [{matiere_attribute: any, present: boolean},]
-
-    // Get all events with students who clocked in
-    // const clockIns = await getClockInsForEvents(db, events);
-    const clockIns = await getClockInsForEventsByUserId(db, events, etudiantid);
-
-    // Combine events with clock-in records
-    const eventsWithClockIns = events.map(event => ({
-      ...event,
-      clockIns: clockIns.filter(clockIn => clockIn != null ? clockIn.event_id === event.id : false),
-    }));
-
-    // for each event: count student absence
-    eventsWithClockIns.forEach((eventWithClockIns) => {
-      const studentsWhoClockedIn = eventWithClockIns.clockIns.map(ci => ci.etudiantid);
-      const wasPresent = studentsWhoClockedIn.includes(student.etudiantid);
-      studentPresenceSheet.push({
-        'eventId': eventWithClockIns.id,
-        'eventTitle': eventWithClockIns.summary,
-        'start': `${formatDate(new Date(eventWithClockIns.start.dateTime))} ${formatTime(new Date(eventWithClockIns.start.dateTime))}`,
-        'end': `${formatDate(new Date(eventWithClockIns.end.dateTime))} ${formatTime(new Date(eventWithClockIns.end.dateTime))}`,
-        'was_present': wasPresent
-      });
-    });
-
-    return studentPresenceSheet;
   } catch (error) {
-    console.error('Error in listAbsencesByUser:', error);
-    throw error;
+    console.error('Error fetching next event from Google Calendar:', error);
+    return null;
   }
 };
+
+// // Function to fetch events for a specific day
+// const fetchEventsForDay = async(date, promotion) => {
+
+//   const startOfDay = new Date(date);
+//   const endOfDay = new Date(date);
+//   endOfDay.setDate(startOfDay.getDate() + 1); // End of the day
+
+//   let calendarUrl = getCalendarUrl(promotion);
+//   calendarUrl += `&timeMin=${encodeURIComponent(startOfDay)}`;
+//   calendarUrl += `&timeMax=${encodeURIComponent(endOfDay)}`;
+//   calendarUrl += '&orderBy=startTime&singleEvents=true';
+  
+//   const response = await axios.get(calendarUrl);
+
+//   return response.data.items;
+// }
+
+// const countAbsencesByPromotion = async (events, promotion) => {
+//   const studentAbsences = {};
+
+//   // Fetch all students from your database
+//   const students = await getStudentsByPromotion(db, promotion);
+
+//   // Initialize absence counts for each student
+//   students.forEach(student => {
+//     studentAbsences[student.etudiantid] = {
+//       name: student.nom + " " + student.prenom,
+//       absence_count: 0
+//     };
+//   });
+
+//   // Get all events with students who clocked in
+//   const clockIns = await getClockInsForEvents(db, events);
+//   // Combine events with clock-in records
+//   const eventsWithClockIns = events.map(event => ({
+//     ...event,
+//     clockIns: clockIns.filter(clockIn => clockIn != null ? clockIn.event_id === event.id : false),
+//   }));
+
+//   // for each event: for each student: count abscence
+//   eventsWithClockIns.map((eventWithClockIns) => {
+//     const studentsWhoClockedIn = eventWithClockIns.clockIns.map(ci => ci.etudiantid);
+//     students.forEach(student => {
+//       const relevantEvents = getRelevantEvents([eventWithClockIns], student.group_name);
+//       if (relevantEvents.length > 0 && !studentsWhoClockedIn.includes(student.etudiantid)) {
+//         studentAbsences[student.etudiantid].absence_count++;
+//       }
+//     });
+//   });
+
+//   return studentAbsences;
+// }
+
+// const listAbsencesByUser = async (events, etudiantid) => {
+//   try {
+//     console.log("etudiantid : ", etudiantid)
+//     const student = await new Promise((resolve, reject) => {
+//       db.get('SELECT etudiants.*, email FROM etudiants LEFT join users ON etudiants.etudiantid = users.etudiantid WHERE etudiants.etudiantid=?', etudiantid, (err, student) => {
+//         if (err) {
+//           reject(err);
+//         } else {
+//           resolve(student);
+//         }
+//       });
+//     });
+
+//     if (!student) {
+//       throw new Error('Student not found');
+//     }
+
+//     let studentPresenceSheet = []; // [{matiere_attribute: any, present: boolean},]
+
+//     // Get all events with students who clocked in
+//     // const clockIns = await getClockInsForEvents(db, events);
+//     const clockIns = await getClockInsForEventsByUserId(db, events, etudiantid);
+
+//     // Combine events with clock-in records
+//     const eventsWithClockIns = events.map(event => ({
+//       ...event,
+//       clockIns: clockIns.filter(clockIn => clockIn != null ? clockIn.event_id === event.id : false),
+//     }));
+
+//     // for each event: count student absence
+//     eventsWithClockIns.forEach((eventWithClockIns) => {
+//       const studentsWhoClockedIn = eventWithClockIns.clockIns.map(ci => ci.etudiantid);
+//       const wasPresent = studentsWhoClockedIn.includes(student.etudiantid);
+//       studentPresenceSheet.push({
+//         'eventId': eventWithClockIns.id,
+//         'eventTitle': eventWithClockIns.summary,
+//         'start': `${formatDate(new Date(eventWithClockIns.start.dateTime))} ${formatTime(new Date(eventWithClockIns.start.dateTime))}`,
+//         'end': `${formatDate(new Date(eventWithClockIns.end.dateTime))} ${formatTime(new Date(eventWithClockIns.end.dateTime))}`,
+//         'was_present': wasPresent
+//       });
+//     });
+
+//     return studentPresenceSheet;
+//   } catch (error) {
+//     console.error('Error in listAbsencesByUser:', error);
+//     throw error;
+//   }
+// };
 
 
 
@@ -559,6 +589,37 @@ app.post('/loadevents', (req, res) => {
       res.status(500).send({ message: "Error fetching calendar events", error });
     });
   })
+});
+
+// Endpoint to get the next event for a user
+app.get('/nextEvent', async (req, res) => {
+  const { email } = req.query; // Get the email from the query parameters
+
+  // Check if email is provided
+  if (!email) {
+    return res.status(400).send("Email is required");
+  }
+
+  try {
+    // Get the user's promotion from the database
+    db.get("SELECT promotion FROM users WHERE email = ?", [email], async (err, row) => {
+      if (err || !row) {
+        return res.status(400).send("User not found");
+      }
+
+      const promotion = row.promotion;
+      const nextEvent = await fetchNextEvent(promotion);
+
+      if (nextEvent) {
+        res.status(200).json(nextEvent);
+      } else {
+        res.status(404).send("No upcoming events found");
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching next event:', error);
+    res.status(500).send('Error fetching next event');
+  }
 });
 
 // Get clocked-in events for a specific user
@@ -740,7 +801,7 @@ app.get('/absence-count-by-promotion', checkAdminAccess, async (req, res) => {
       studentId: student.etudiantid,
       name: student.nom,
       firstname: student.prenom,
-      absenceCount: absenceCount
+      absenceCount: absenceCount,
     });
   }
 

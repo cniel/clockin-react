@@ -7,6 +7,7 @@ import 'materialize-css/dist/js/materialize.min.js';
 const EventList = ({ events, email }) => {
 
   const [clockedInEvents, setClockedInEvents] = useState([]);
+  const [nextEvent, setNextEvent] = useState(null);
 
   useEffect(() => {
     const fetchClockedInEvents = async () => {
@@ -18,7 +19,17 @@ const EventList = ({ events, email }) => {
       }
     };
 
+    const fetchNextEvent = async () => {
+      try {
+        const response = await axios.get(`http://localhost:3000/nextEvent?email=${email}`);
+        setNextEvent(response.data); // Assuming response.data is the next event object
+      } catch (error) {
+        M.toast({ html: 'Erreur lors de la récupération du prochain événement.', classes: 'orange' });
+      }
+    };
+
     fetchClockedInEvents();
+    fetchNextEvent();
   }, [email]);
 
   const handleClockIn = async (event) => {
@@ -30,6 +41,19 @@ const EventList = ({ events, email }) => {
       });
       M.toast({ html: 'Enregistré !', classes: 'green' });
       setClockedInEvents((prev) => [...prev, event.id]);
+    } catch (error) {
+      M.toast({ html: 'Erreur...', classes: 'orange' });
+    }
+  };
+
+  const handleMarkAsCompleted = async (event) => {
+    try {
+      await axios.post('http://localhost:3000/mark-as-completed', {
+        email: email,
+        eventId: event.id, // Send the event ID to identify the event
+        eventSummary: event.summary, // Optionally send more details if needed
+      });
+      M.toast({ html: 'Fin de clinique enregistrée !', classes: 'green' });
     } catch (error) {
       M.toast({ html: 'Erreur...', classes: 'orange' });
     }
@@ -65,6 +89,16 @@ const EventList = ({ events, email }) => {
                         alt="ok"
                         style={{ width: '30px', position: 'relative', transform: 'translate(40px, 2px)' }}
                       />}
+                    
+                    {event.summary.includes("CLI-FC") || event.summary.includes("Form Prat Clin CFC") && (
+                      <button
+                        className="waves-effect waves-light btn"
+                        onClick={() => handleMarkAsCompleted(event)}
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: ".656rem", marginLeft: '10px' }} // Flexbox styles
+                      >
+                        Terminé
+                      </button>
+                    )}
                   </div>
 
                 </li>
@@ -72,7 +106,23 @@ const EventList = ({ events, email }) => {
             })}
           </ul>
         ) : (
-          <p>...</p>
+          nextEvent ? (
+            <div>
+              <h5>Aucun cours pour le moment</h5>
+              <h6>Prochain cours :</h6>
+              <ul className="collection">
+                <li className="collection-item">
+                  <h5>{nextEvent.summary}</h5>
+                  {nextEvent.description && <p><strong>Description:</strong> {nextEvent.description}</p>}
+                  {nextEvent.location && <p><strong>Location:</strong> {nextEvent.location}</p>}
+                  <p><strong>Start:</strong> {new Date(nextEvent.start.dateTime || nextEvent.start.date).toLocaleString()}</p>
+                  <p><strong>End:</strong> {new Date(nextEvent.end.dateTime || nextEvent.end.date).toLocaleString()}</p>
+                </li>
+              </ul>
+            </div>
+          ) : (
+            <p>Aucun cours pour le moment.</p>
+          )
         )}
       </div>
     </div>
