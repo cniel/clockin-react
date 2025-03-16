@@ -154,13 +154,29 @@ const fetchEventsByDateRange = async (promotion, startDatetime, endDatetime) => 
     console.log("startDatetime : ", startDatetime)
     console.log("endDatetime : ", endDatetime)
     calendarUrl += '&orderBy=startTime&singleEvents=true';
-    const response = await axios.get(calendarUrl);
-    if (response.status != 200) {
-      console.error('Error fetching calendar events:', error);
-      return [];
-    } else {
-      return response.data.items;
-    }
+
+    let allEvents = [];
+    let nextPageToken = null;
+
+    do {
+      let url = calendarUrl;
+      if (nextPageToken) {
+        url += `&pageToken=${nextPageToken}`;
+      }
+
+      const response = await axios.get(url);
+      if (response.status !== 200) {
+        console.error('Error fetching calendar events:', response.statusText);
+        return [];
+      }
+
+      allEvents = allEvents.concat(response.data.items);
+      nextPageToken = response.data.nextPageToken;
+
+    } while (nextPageToken);
+
+    console.log('Total events fetched:', allEvents.length);
+    return allEvents;
   } catch (error) {
     console.error('Error fetching lessons from Google Calendar:', error);
     return [];
@@ -200,6 +216,7 @@ const fetchCalendarEventsWholeYearUntilNow = async (promotion, groupName) => {
 
   const relevantEvents = getRelevantEvents(events, groupName, false);
 
+  console.log("relevantEvents: ", relevantEvents.length)
   // Sort events by start date
   relevantEvents.sort((a, b) => new Date(a.start.dateTime) - new Date(b.start.dateTime));
 
@@ -232,6 +249,7 @@ const matchGroup = (input, text) => {
 
 const getRelevantEvents = (events, group_name, ongoingEventsFilter=true) => {
   const eventsToFilter = ongoingEventsFilter ? filterOngoingEvents(events) : events;
+  
   return eventsToFilter.filter(event => {
 
     const titleIncludesGroup = matchGroup(group_name, event.summary);
