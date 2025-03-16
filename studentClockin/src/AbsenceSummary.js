@@ -9,6 +9,7 @@ const AbsenceSummary = () => {
   const [absenceDetails, setAbsenceDetails] = useState([]);
   const [selectedStudentId, setSelectedStudentId] = useState(null);
   const [selectedStudentName, setSelectedStudentName] = useState('');
+  const [showOnlyAbsences, setShowOnlyAbsences] = useState(true);
   const [accessCode, setAccessCode] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
@@ -165,6 +166,10 @@ const AbsenceSummary = () => {
     );
   }
 
+  const filteredAbsenceDetails = showOnlyAbsences
+  ? absenceDetails.filter(detail => !detail.was_present)
+  : absenceDetails;
+
   return (
     <div className="container">
       <h2>Rapport de présence</h2>
@@ -196,6 +201,14 @@ const AbsenceSummary = () => {
           <h3>{selectedStudentName.replace("_", " ")}</h3>
           <button className="btn waves-effect waves-light" onClick={handleBackClick}>
             Retour à la promotion
+          </button>
+
+          <button
+            className="btn waves-effect waves-light"
+            style={{ marginLeft: '10px' }}
+            onClick={() => setShowOnlyAbsences(!showOnlyAbsences)}
+          >
+            {showOnlyAbsences ? 'Afficher toutes les présences' : 'Afficher uniquement les absences'}
           </button>
 
           <button className="btn waves-effect waves-light right" style={{ marginRight: '5px' }} onClick={() => exportToExcel(absenceDetails, false)}>
