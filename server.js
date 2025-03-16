@@ -9,6 +9,7 @@ import cors from 'cors'; // Import cors
 import crypto from 'crypto';
 import moment from 'moment-timezone';
 import axios from 'axios';
+import { group } from 'console';
 const app = express();
 
 const port = 3000;
@@ -209,7 +210,7 @@ const fetchCalendarEvents = async (promotion) => {
 };
 
 // Function to fetch events from Google Calendar
-const fetchCalendarEventsWholeYearUntilNow = async (promotion, groupName) => {
+const fetchCalendarEventsWholeYearByGroup = async (promotion, groupName) => {
 
   const now = new Date().toISOString(); // Current date and time
   const events = await fetchEventsByDateRange(promotion, getStartOfSchoolYear(), now);
@@ -221,6 +222,25 @@ const fetchCalendarEventsWholeYearUntilNow = async (promotion, groupName) => {
   relevantEvents.sort((a, b) => new Date(a.start.dateTime) - new Date(b.start.dateTime));
 
   return relevantEvents;
+};
+
+const fetchCalendarEventsWholeYear = async (promotion) => {
+  const now = new Date().toISOString(); // Current date and time
+  const groups = ["Gr1", "Gr2", "Gr3", "Gr4"];
+  let eventsByGroup = {};
+
+  const events = await fetchEventsByDateRange(promotion, getStartOfSchoolYear(), now);
+
+  for (let group of groups) {
+    const relevantEvents = getRelevantEvents(events, group, false);
+
+    // Sort events by start date
+    relevantEvents.sort((a, b) => new Date(a.start.dateTime) - new Date(b.start.dateTime));
+
+    eventsByGroup[group] = relevantEvents;
+  }
+
+  return eventsByGroup;
 };
 
 const filterOngoingEvents = (events) => {
@@ -805,11 +825,10 @@ app.get('/absence-count-by-promotion', checkAdminAccess, async (req, res) => {
   const groups = ["Gr1", "Gr2", "Gr3", "Gr4"]
   let nEventsByGroup = {}
 
+  let eventsByGroup = await fetchCalendarEventsWholeYear(promotion)
   for (let group of groups) {
-    let events = await fetchCalendarEventsWholeYearUntilNow(promotion, group)
-    nEventsByGroup[group] = events.length
+    nEventsByGroup[group] = eventsByGroup[group].length
   }
-
   console.log("# nEventsByGroup : ", nEventsByGroup)
 
   // count absences for each student
@@ -857,7 +876,7 @@ app.get('/absence-details-by-student', checkAdminAccess, async (req, res) => {
 
     console.log("student : ", student)
 
-    let events = await fetchCalendarEventsWholeYearUntilNow(student.designationlong, student.group_name || "Gr1")
+    let events = await fetchCalendarEventsWholeYearByGroup(student.designationlong, student.group_name || "Gr1")
     let studentClockIns = await getClockInsByUserIdForCurrentScoolYear(db, student.etudiantid);
     studentClockIns = studentClockIns.map(clockIn => clockIn.event_id);
 
