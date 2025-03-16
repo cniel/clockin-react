@@ -26,9 +26,10 @@ const api_key = "AIzaSyDh_23gFH-oYNTwr5LfHzToeYwXDWM7vsM" // google api key
 // Create tables if they don't exist
 db.serialize(() => {
   db.run("CREATE TABLE IF NOT EXISTS etudiants (etudiantid TEXT PRIMARY KEY, nom TEXT NOT NULL, prenom TEXT, designationlong TEXT)")
-  db.run("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, etudiant_id TEXT NOT NULL, email TEXT UNIQUE, password TEXT, first_name TEXT, last_name TEXT, promotion TEXT, group_name TEXT)");
+  db.run("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, etudiantid TEXT NOT NULL, email TEXT UNIQUE, password TEXT, first_name TEXT, last_name TEXT, promotion TEXT, group_name TEXT)");
   db.run("CREATE TABLE IF NOT EXISTS clockins (id INTEGER PRIMARY KEY, user_id INTEGER, email TEXT, event_id TEXT, event_name TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)");
   db.run("CREATE TABLE IF NOT EXISTS sessions (id INTEGER PRIMARY KEY, user_id INTEGER, token TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)");
+  db.run("CREATE TABLE IF NOT EXISTS cliclocks(event_id TEXT PRIMARY KEY NOT NULL, etudiantid TEXT NOT NULL, status TEXT NOT NULL)");
 });
 
 const getCalendarUrl = (promotion) => {
@@ -300,7 +301,7 @@ const getClockInsByUserIdForCurrentScoolYear = async (db, userId) => {
     try {
       //const q = "SELECT DISTINCT event_id FROM clockins WHERE user_id = '" + userId + "' AND timestamp BETWEEN '" + startOfSchoolYear  + "' AND '" + now + "'"
       //db.all(q, (err, rows) => {
-      db.all('SELECT DISTINCT event_id FROM clockins WHERE user_id = ? AND timestamp BETWEEN ? AND ?', [userId, startOfSchoolYear, now], (err, rows) => {
+      db.all('SELECT DISTINCT c.event_id FROM clockins c LEFT JOIN cliclocks cli ON c.event_id = cli.event_id AND c.user_id = cli.etudiantid WHERE c.user_id = ? AND c.timestamp BETWEEN ? AND ? AND cli.event_id IS NULL', [userId, startOfSchoolYear, now], (err, rows) => {
         if (err) {
           return reject(err);
         }
@@ -589,17 +590,44 @@ app.post('/logout', (req, res) => {
 
 // Clock in
 app.post('/clockin', (req, res) => {
-  const { email, eventId, eventSummary } = req.body;
+  const { email, eventId, eventSummary, isCli } = req.body;
+  
+  db.get("SELECT * FROM users WHERE email = ?", [email], (err, row) => {
+    if (err || !row) {
+      return res.status(400).send("User not found");
+    }
+
+    console.log("row : ", row)
+    console.log("isCli : ", isCli)
+
+    db.run("INSERT INTO clockins (user_id, email, event_id, event_name) VALUES (?, ?, ?, ?)", [row.etudiantid, email, eventId, eventSummary], function (err) {
+      if (err) {
+        return res.status(500).send("Error clocking in");
+      } else if(isCli) {
+        db.run("INSERT INTO cliclocks (event_id, etudiantid, status) VALUES (?, ?, ?)", [eventId, row.etudiantid, "pending"], function (err) {
+          if (err) {
+            return res.status(500).send("Error clocking in");
+          }
+        });
+      }
+      res.status(200).send("Clocked in successfully");
+    });
+  });
+});
+
+app.post('/mark-as-completed', (req, res) => {
+  const { email, eventId } = req.body;
 
   db.get("SELECT * FROM users WHERE email = ?", [email], (err, row) => {
     if (err || !row) {
       return res.status(400).send("User not found");
     }
-    db.run("INSERT INTO clockins (user_id, email, event_id, event_name) VALUES (?, ?, ?, ?)", [row.etudiantid, email, eventId, eventSummary], function (err) {
+
+    db.run("DELETE FROM cliclocks WHERE event_id = ? AND etudiantid = ?", [eventId, row.etudiantid], function (err) {
       if (err) {
-        return res.status(500).send("Error clocking in");
+        return res.status(500).send("Error marking event as completed");
       }
-      res.status(200).send("Clocked in successfully");
+      res.status(200).send("Event marked as completed");
     });
   });
 });
@@ -696,6 +724,24 @@ app.get('/clockedInEvents', (req, res) => {
 
     // Send the list of clocked-in event IDs as the response
     res.status(200).json(clockedInEventIds);
+  });
+});
+
+app.get('/pendingEvents', (req, res) => {
+  const { email } = req.query;
+
+  if (!email) {
+    return res.status(400).send("Email is required");
+  }
+
+  // Query the clockins table to get clocked-in events for the user
+  db.all("SELECT event_id FROM clockins c INNER JOIN users u on u.etudiantid = c.etudiantid WHERE email = ?", [email], (err, rows) => {
+    if (err) {
+      console.error("Error fetching clocked-in events:", err);
+      return res.status(500).send("Error fetching clocked-in events");
+    }
+
+    
   });
 });
 
