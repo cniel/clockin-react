@@ -151,22 +151,37 @@ const fetchEventsByDateRange = async (promotion, startDatetime, endDatetime) => 
     if (startDatetime) calendarUrl += `&timeMin=${encodeURIComponent(startDatetime)}`;
     if (endDatetime) calendarUrl += `&timeMax=${encodeURIComponent(endDatetime)}`;
 
+    console.log("startDatetime : ", startDatetime)
+    console.log("endDatetime : ", endDatetime)
     calendarUrl += '&orderBy=startTime&singleEvents=true';
     const response = await axios.get(calendarUrl);
-
-    return response.data.items;
+    if (response.status != 200) {
+      console.error('Error fetching calendar events:', error);
+      return [];
+    } else {
+      return response.data.items;
+    }
   } catch (error) {
     console.error('Error fetching lessons from Google Calendar:', error);
     return [];
   }
 };
 
+
+const getNow = () => {
+  return moment("2025-03-10 09:30").tz('Europe/Paris');
+}
+
 // Function to fetch events from Google Calendar
 const fetchCalendarEvents = async (promotion) => {
   let calendarUrl = getCalendarUrl(promotion);
 
-  const startOfDay = moment().tz('Europe/Paris').startOf('day').format();
-  const endOfDay = moment().tz('Europe/Paris').endOf('day').format();
+  // const startOfDay = moment().tz('Europe/Paris').startOf('day').format();
+  // const endOfDay = moment().tz('Europe/Paris').endOf('day').format();
+  
+  const now = getNow();
+  const startOfDay = now.startOf('day').format();
+  const endOfDay = now.endOf('day').format();
 
   calendarUrl += `&timeMin=${encodeURIComponent(startOfDay)}`;
   calendarUrl += `&timeMax=${encodeURIComponent(endOfDay)}`;
@@ -192,7 +207,7 @@ const fetchCalendarEventsWholeYearUntilNow = async (promotion, groupName) => {
 };
 
 const filterOngoingEvents = (events) => {
-  let now = moment.tz('2025-03-13 14:45', 'Europe/Paris');  // Current time in France
+  let now = getNow(); //moment.tz('2025-03-13 14:45', 'Europe/Paris');  // Current time in France
 
   return events.filter(event => {
     const eventStart = moment(event.start.dateTime);

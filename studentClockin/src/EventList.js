@@ -59,6 +59,14 @@ const EventList = ({ events, email }) => {
     }
   };
 
+  const lessThan10MinutesLeft = (endDateTime) => {
+    console.log(endDateTime);
+    const now = new Date();
+    const end = new Date(endDateTime);
+    const diff = (end - now) / 1000 / 60; // Difference in minutes
+    return diff <= 10;
+  };
+
   return (
     <div className="card">
       <div className="card-content">
@@ -90,7 +98,7 @@ const EventList = ({ events, email }) => {
                         style={{ width: '30px', position: 'relative', transform: 'translate(40px, 2px)' }}
                       />}
                     
-                    {event.summary.includes("CLI-FC") || event.summary.includes("Form Prat Clin CFC") && (
+                    {(event.summary.includes("CLI-FC") || event.summary.includes("Form Prat Clin CFC")) && lessThan10MinutesLeft(event.end.dateTime) && (
                       <button
                         className="waves-effect waves-light btn"
                         onClick={() => handleMarkAsCompleted(event)}
