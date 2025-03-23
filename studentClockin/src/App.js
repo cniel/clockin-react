@@ -33,7 +33,7 @@ const App = () => {
 
   // const handleLogout = async () => {
   //   const token = localStorage.getItem('token');
-  //   await axios.post('http://localhost:3000/logout', { token });
+  //   await axios.post('http://192.168.1.38:3000/logout', { token });
   //   localStorage.removeItem('email');
   //   localStorage.removeItem('token');
   //   setLoggedIn(false);

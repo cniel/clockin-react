@@ -27,20 +27,19 @@ const AddClockin = () => {
 
   const handleFetchEvents = async () => {
     try {
-      const response = await axios.get('http://localhost:3000/events', {
+      const response = await axios.get('http://192.168.1.38:3000/events', {
         params: { promotion, etudiantid, nom, prenom, date },
         headers: { 'x-access-code': accessCode }
       });
       setEvents(response.data);
     } catch (error) {
-      console.error('Error fetching events:', error);
-      alert('Error fetching events');
+      M.toast({ html: 'Erreur lors de la récupération des évènements', classes: 'red' });
     }
   };
 
   const handleAddClockin = async () => {
     try {
-      const response = await axios.post('http://localhost:3000/add-clockin', {
+      const response = await axios.post('http://192.168.1.38:3000/add-clockin', {
         promotion,
         etudiantid,
         eventId: selectedEvent.split("@@@")[0],
@@ -48,10 +47,10 @@ const AddClockin = () => {
       }, {
         headers: { 'x-access-code': accessCode }
       });
-      alert('Clockin added successfully');
+      M.toast({ html: 'Saisie de temps ajoutée avec succès', classes: 'green' });
     } catch (error) {
-      console.error('Error adding clockin:', error);
-      alert('Error adding clockin');
+      M.toast({ html: 'Erreur lors de l\'ajout de la saisie de temps', classes: 'red' });
+
     }
   };
 

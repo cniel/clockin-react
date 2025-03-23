@@ -11,27 +11,31 @@ const EventList = ({ events, email }) => {
   const [nextEvent, setNextEvent] = useState(null);
 
   useEffect(() => {
-    const fetchClockedInEvents = async () => {
-      try {
-        const response = await axios.get(`http://localhost:3000/clockedInEvents?email=${email}`);
-        setClockedInEvents(response.data);
-      } catch (error) {
-        M.toast({ html: 'Erreur lors de la récupération des événements.', classes: 'orange' });
-      }
-    };
 
     const fetchPendingEvents = async () => {
       try {
-        const response = await axios.get(`http://localhost:3000/pendingEvents?email=${email}`);
+        const response = await axios.get(`http://192.168.1.38:3000/pendingEvents?email=${email}`);
         setPendingEvents(response.data);
       } catch (error) {
         M.toast({ html: 'Erreur lors de la récupération des événements.', classes: 'orange' });
       }
     };
 
+    const fetchClockedInEvents = async () => {
+      try {
+        const response = await axios.get(`http://192.168.1.38:3000/clockedInEvents?email=${email}`);
+        setClockedInEvents(response.data);
+        await fetchPendingEvents();
+      } catch (error) {
+        M.toast({ html: 'Erreur lors de la récupération des événements.', classes: 'orange' });
+      }
+    };
+
+    
+
     const fetchNextEvent = async () => {
       try {
-        const response = await axios.get(`http://localhost:3000/nextEvent?email=${email}`);
+        const response = await axios.get(`http://192.168.1.38:3000/nextEvent?email=${email}`);
         setNextEvent(response.data); // Assuming response.data is the next event object
       } catch (error) {
         M.toast({ html: 'Erreur lors de la récupération du prochain événement.', classes: 'orange' });
@@ -44,7 +48,7 @@ const EventList = ({ events, email }) => {
 
   const handleClockIn = async (event, isCli) => {
     try {
-      await axios.post('http://localhost:3000/clockin', {
+      await axios.post('http://192.168.1.38:3000/clockin', {
         email: email,
         eventId: event.id, // Send the event ID to identify the event
         eventSummary: event.summary, // Optionally send more details if needed
@@ -53,6 +57,9 @@ const EventList = ({ events, email }) => {
     
       M.toast({ html: 'Enregistré !', classes: 'green' });
       setClockedInEvents((prev) => [...prev, event.id]);
+
+      setPendingEvents((prev) => [...prev, event.id]);
+
     } catch (error) {
       M.toast({ html: 'Erreur...', classes: 'orange' });
     }
@@ -60,12 +67,16 @@ const EventList = ({ events, email }) => {
 
   const handleMarkAsCompleted = async (event) => {
     try {
-      await axios.post('http://localhost:3000/mark-as-completed', {
+      await axios.post('http://192.168.1.38:3000/mark-as-completed', {
         email: email,
         eventId: event.id, // Send the event ID to identify the event
         eventSummary: event.summary, // Optionally send more details if needed
       });
+
       M.toast({ html: 'Fin de clinique enregistrée !', classes: 'green' });
+      // Remove the event from the pending events list
+      setPendingEvents((prev) => prev.filter((id) => id !== event.id));
+
     } catch (error) {
       M.toast({ html: 'Erreur...', classes: 'orange' });
     }
@@ -81,6 +92,11 @@ const EventList = ({ events, email }) => {
     return diff <= 10;
   };
 
+   // Compute completedEvents dynamically
+   const completedEvents = clockedInEvents.filter(
+    (eventId) => !pendingEvents.includes(eventId)
+  );
+
   return (
     <div className="card">
       <div className="card-content">
@@ -90,7 +106,8 @@ const EventList = ({ events, email }) => {
             {events.map((event) => {
               const isClockedIn = clockedInEvents.includes(event.id);
               const isCli = event.summary.includes("CLI-FC") || event.summary.includes("Form Prat Clin CFC");
-              const isCliCompleted = false;
+              const isCliCompleted = completedEvents.includes(event.id);
+
               return (
                 <li key={event.id} className={`collection-item ${isClockedIn ? 'grey lighten-4' : ''}`}>
                   <h5>{event.summary}</h5>
@@ -119,7 +136,7 @@ const EventList = ({ events, email }) => {
                   {(event.summary.includes("CLI-FC") || event.summary.includes("Form Prat Clin CFC")) && (
                     <div className="col s12 center-align" style={{ display: "flex", justifyContent: "center", alignItems: "center" }} >
                       <button
-                        disabled={!lessThan10MinutesLeft(event.end.dateTime)}
+                        disabled={isCliCompleted || !lessThan10MinutesLeft(event.end.dateTime)}
                         className="waves-effect waves-light btn"
                         onClick={() => handleMarkAsCompleted(event)}
                         style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: ".656rem", marginLeft: '10px' }} // Flexbox styles

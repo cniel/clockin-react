@@ -21,7 +21,7 @@ const AbsenceSummary = () => {
     if (promotion && isAuthenticated) {
       const fetchAbsenceSummary = async () => {
         try {
-          const response = await axios.get('http://localhost:3000/absence-count-by-promotion', {
+          const response = await axios.get('http://192.168.1.38:3000/absence-count-by-promotion', {
             params: { promotion },
             headers: { 'x-access-code': accessCode }
           });
@@ -37,7 +37,7 @@ const AbsenceSummary = () => {
 
   const handleStudentClick = async (studentId, studentName) => {
     try {
-      const response = await axios.get('http://localhost:3000/absence-details-by-student', {
+      const response = await axios.get('http://192.168.1.38:3000/absence-details-by-student', {
         params: { etudiantid: studentId },
         headers: { 'x-access-code': accessCode }
       });
@@ -62,7 +62,7 @@ const AbsenceSummary = () => {
 
   const handleMarkAsPresent = async (eventId, eventTitle) => {
     try {
-      await axios.post('http://localhost:3000/mark-as-present', {
+      await axios.post('http://192.168.1.38:3000/mark-as-present', {
         etudiantid: selectedStudentId,
         eventId,
         eventTitle,
@@ -70,29 +70,28 @@ const AbsenceSummary = () => {
       }, {
         headers: { 'x-access-code': accessCode }
       });
-      alert('Student marked as present');
+
+      M.toast({ html: 'Étudiant marqué comme présent', classes: 'orange' });
       // Refresh absence details
       handleStudentClick(selectedStudentId, selectedStudentName);
     } catch (error) {
-      console.error('Error marking student as present:', error);
-      alert('Error marking student as present');
+      M.toast({ html: 'Erreur lors de la mise à jour de la présence de l\'étudiant', classes: 'red' });
     }
   };
 
   const handleDeleteClockin = async (eventId) => {
     try {
-      await axios.post('http://localhost:3000/delete-clockin', {
+      await axios.post('http://192.168.1.38:3000/delete-clockin', {
         etudiantid: selectedStudentId,
         eventId
       }, {
         headers: { 'x-access-code': accessCode }
       });
-      alert('Clockin deleted');
       // Refresh absence details
       handleStudentClick(selectedStudentId, selectedStudentName);
+      M.toast({ html: 'Pointage supprimé', classes: 'orange' });
     } catch (error) {
-      console.error('Error deleting clockin:', error);
-      alert('Error deleting clockin');
+      M.toast({ html: 'Erreur lors de la suppression du pointage.', classes: 'red' });
     }
   };
 
@@ -218,11 +217,11 @@ const AbsenceSummary = () => {
           <table className="highlight">
             <thead>
               <tr>
-                <th>Event Title</th>
-                <th>Start</th>
-                <th>End</th>
-                <th>Was Present</th>
-                <th>Actions</th>
+                <th>Cours</th>
+                <th>Début</th>
+                <th>Fin</th>
+                <th>Présent.e</th>
+                <th>Action</th>
               </tr>
             </thead>
             <tbody>

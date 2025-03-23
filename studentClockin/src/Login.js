@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import axios from 'axios';
+import M from 'materialize-css';
+
 
 const Login = ({ setLoggedIn, setEmail, setEvents }) => {
   const [email, setEmailInput] = useState('');
@@ -8,7 +10,7 @@ const Login = ({ setLoggedIn, setEmail, setEvents }) => {
   const handleLogin = async (e) => {
     e.preventDefault();
     try {
-      const response = await axios.post('http://localhost:3000/login', { email, password });
+      const response = await axios.post('http://192.168.1.38:3000/login', { email, password });
       const { token, events } = response.data;
       setEmail(email);
       localStorage.setItem('email', email);
@@ -16,7 +18,7 @@ const Login = ({ setLoggedIn, setEmail, setEvents }) => {
       setEvents(events); // Set the events received from the server
       setLoggedIn(true);
     } catch (error) {
-      alert('Invalid email or password');
+      M.toast({ html: 'Email ou mot de passe incorrect.', classes: 'red' });
     }
   };
 

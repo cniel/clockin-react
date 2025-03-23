@@ -18,7 +18,7 @@ const Admin = () => {
   useEffect(() => {
     // Initialize select elements
     M.AutoInit();
-    axios.get(`http://localhost:3000/students`)
+    axios.get(`http://192.168.1.38:3000/students`)
       .then(response => {
         setStudents(response.data);
       })
@@ -36,7 +36,7 @@ const Admin = () => {
 
   const fetchQRCodes = useCallback(async () => {
     try {
-      const response = await axios.get('http://localhost:3000/admin/qrcodes', { params: { promotion } });
+      const response = await axios.get('http://192.168.1.38:3000/admin/qrcodes', { params: { promotion } });
       setQRCodes(response.data);
     } catch (error) {
       console.error('Error fetching QR codes:', error);
@@ -75,7 +75,7 @@ const Admin = () => {
     }
 
     try {
-      const response = await axios.get("http://localhost:3000" + endpoint, { params });
+      const response = await axios.get("http://192.168.1.38:3000" + endpoint, { params });
       setResults(response.data);
     } catch (error) {
       console.error('Error fetching clock-ins:', error);

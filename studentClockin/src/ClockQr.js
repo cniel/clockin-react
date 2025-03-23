@@ -12,7 +12,7 @@ const ClockQr = () => {
       setScanResult(data);
       try {
         // Fetch event details based on the scanned QR code (location)
-        const response = await axios.get('http://localhost:3000/get-event', {
+        const response = await axios.get('http://192.168.1.38:3000/get-event', {
           params: { location: data },
         });
 
@@ -21,7 +21,7 @@ const ClockQr = () => {
           const { eventId, userId, promotion, group } = response.data;
 
           // Send clock-in action
-          const clockInResponse = await axios.post('http://localhost:3000/clockin', {
+          const clockInResponse = await axios.post('http://192.168.1.38:3000/clockin', {
             eventId,
             userId,
             promotion,

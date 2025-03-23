@@ -102,7 +102,14 @@ const sendEmail = (email, password) => {
     from: 'niel.clement@gmail.com',
     to: email,
     subject: 'Mot de passe IDHEO',
-    text: `Ton mot de passe est : ${password}`
+    text: `Inscription à l'application de saisie de temps réussie !
+Mot de passe de connexion : ${password}
+
+IdHEO
+Adresse : 15 bd Marcel Paul
+44800 Saint-Herblain
+https://www.idheo.com
+`
   };
 
   transporter.sendMail(mailOptions, (error, info) => {
@@ -187,7 +194,7 @@ const fetchEventsByDateRange = async (promotion, startDatetime, endDatetime) => 
 
 
 const getNow = () => {
-  return moment("2025-03-10 09:30").tz('Europe/Paris');
+  return moment().tz('Europe/Paris');
 }
 
 // Function to fetch events from Google Calendar
@@ -211,10 +218,13 @@ const fetchCalendarEvents = async (promotion) => {
 };
 
 // Function to fetch events from Google Calendar
-const fetchCalendarEventsWholeYearByGroup = async (promotion, groupName) => {
+const fetchCalendarEventsWholeYearByGroup = async (promotion, groupName, isMidyear=true) => {
 
   const now = new Date().toISOString(); // Current date and time
-  const events = await fetchEventsByDateRange(promotion, getStartOfSchoolYear(), now);
+  const startMidYear = moment("2025-03-23 23:59:59").tz('Europe/Paris');
+  
+  let startDate = isMidyear ? startMidYear.toISOString() : getStartOfSchoolYear(); 
+  const events = await fetchEventsByDateRange(promotion, startDate, now);
 
   const relevantEvents = getRelevantEvents(events, groupName, false);
 
@@ -225,12 +235,16 @@ const fetchCalendarEventsWholeYearByGroup = async (promotion, groupName) => {
   return relevantEvents;
 };
 
-const fetchCalendarEventsWholeYear = async (promotion) => {
+const fetchCalendarEventsWholeYear = async (promotion, isMidyear=true) => {
   const now = new Date().toISOString(); // Current date and time
   const groups = ["Gr1", "Gr2", "Gr3", "Gr4"];
   let eventsByGroup = {};
 
-  const events = await fetchEventsByDateRange(promotion, getStartOfSchoolYear(), now);
+  
+  const startMidYear = moment("2025-03-23 23:59:59").tz('Europe/Paris');
+  
+  let startDate = isMidyear ? startMidYear.toISOString() : getStartOfSchoolYear(); 
+  const events = await fetchEventsByDateRange(promotion, startDate, now);
 
   for (let group of groups) {
     const relevantEvents = getRelevantEvents(events, group, false);
@@ -249,8 +263,8 @@ const filterOngoingEvents = (events) => {
 
   return events.filter(event => {
     const eventStart = moment(event.start.dateTime);
-    const eventEnd = moment(event.end.dateTime);
-    return now.isBetween(eventStart, eventEnd);  // Check if current time is between event start and end
+    // const eventEnd = moment(event.end.dateTime);
+    return now.isBetween(eventStart.subtract(2, 'minutes'), eventStart.add(14, 'minutes'));  // Check if current time is between event start and 10 minutes after
   });
 }
 
@@ -735,13 +749,14 @@ app.get('/pendingEvents', (req, res) => {
   }
 
   // Query the clockins table to get clocked-in events for the user
-  db.all("SELECT event_id FROM clockins c INNER JOIN users u on u.etudiantid = c.etudiantid WHERE email = ?", [email], (err, rows) => {
+  db.all("SELECT event_id FROM cliclocks c INNER JOIN users u on u.etudiantid = c.etudiantid WHERE u.email = ?", [email], (err, rows) => {
     if (err) {
       console.error("Error fetching clocked-in events:", err);
       return res.status(500).send("Error fetching clocked-in events");
     }
 
-    
+    const pendingEventIds = rows.map(row => row.event_id);
+    res.status(200).json(pendingEventIds); 
   });
 });
 
@@ -922,11 +937,10 @@ app.get('/absence-details-by-student', checkAdminAccess, async (req, res) => {
 
     console.log("student : ", student)
 
-    let events = await fetchCalendarEventsWholeYearByGroup(student.designationlong, student.group_name || "Gr1")
+    let events = await fetchCalendarEventsWholeYearByGroup(student.designationlong, student.group_name || "Gr1", true);
     let studentClockIns = await getClockInsByUserIdForCurrentScoolYear(db, student.etudiantid);
     studentClockIns = studentClockIns.map(clockIn => clockIn.event_id);
 
-    console.log('studentClockIns: ', studentClockIns)
     // test for student presence for each event
     let presenceSheet = []
     events.forEach((fetched_event) => {
@@ -993,7 +1007,8 @@ app.post('/delete-clockin', checkAdminAccess, async (req, res) => {
   }
 });
 
+
 app.listen(port, () => {
-  console.log(`Server running at http://localhost:${port}/`);
+  console.log(`Server running at http://192.168.1.38:${port}/`);
 });
 
