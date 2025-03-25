@@ -6,12 +6,7 @@ import 'materialize-css/dist/js/materialize.min.js';
 import Register from './Register';
 import Login from './Login';
 import Clockin from './Clockin'; // Fixed casing issue
-import Admin from './Admin';
 import AbsenceSummary from './AbsenceSummary';
-import AddClockin from './AddClockin';
-
-import EventsForDay from './EventsForDay';
-// import ClockQr from './Clockqr';
 
 // import axios from 'axios';
 import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
