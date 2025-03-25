@@ -12,6 +12,35 @@ const AbsenceSummary = () => {
   const [showOnlyAbsences, setShowOnlyAbsences] = useState(true);
   const [accessCode, setAccessCode] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+
+  useEffect(() => {
+    const elems = document.querySelectorAll('.modal');
+    M.Modal.init(elems);
+  }, []);
+
+  const handleChangePassword = async (e) => {
+    e.preventDefault();
+    if (newPassword !== confirmPassword) {
+      M.toast({ html: 'Passwords do not match', classes: 'red' });
+      return;
+    }
+
+    try {
+      await axios.post('http://192.168.1.38:3000/change-admin-password', {
+        newPassword,
+      }, {
+        headers: { 'x-access-code': accessCode },
+      });
+
+      M.toast({ html: 'Password changed successfully', classes: 'green' });
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (error) {
+      M.toast({ html: 'Error changing password', classes: 'red' });
+    }
+  };
 
   useEffect(() => {
     // Initialize Materialize select

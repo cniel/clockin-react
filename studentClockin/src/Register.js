@@ -44,26 +44,31 @@ const Register = ({ setRegistered }) => {
     e.preventDefault();
     // Check if promotion or group is empty
     console.log("userId : ", userId);
-    if (promotion === 'default' || group === 'default' || !userId) {
-      M.toast({ html: 'Veuillez selectionner une promotion, un groupe et un étudiant parmi la liste proposée.', classes: 'red' });
-      return; // Prevent form submission
-    }
+    if(email !== 'admin@idheo.com') {
+      if (promotion === 'default' || group === 'default' || !userId) {
+        M.toast({ html: 'Veuillez selectionner une promotion, un groupe et un étudiant parmi la liste proposée.', classes: 'red' });
+        return; // Prevent form submission
+      }
 
-    try {
-      await axios.post('http://192.168.1.38:3000/register', {
-        firstName,
-        lastName,
-        email,
-        promotion,
-        group,
-        userId,
-      });
-      M.toast({ html: 'Inscription réussie. Un mot de passe a été envoyé sur votre boîte mail.', classes: 'green' });
+      try {
+        await axios.post('http://192.168.1.38:3000/register', {
+          firstName,
+          lastName,
+          email,
+          promotion,
+          group,
+          userId,
+        });
+        M.toast({ html: 'Inscription réussie. Un mot de passe a été envoyé sur votre boîte mail.', classes: 'green' });
+        localStorage.setItem('email', email);
+        setRegistered(true);
+      } catch (error) {
+        M.toast({ html: 'Erreur lors de l\'inscription.', classes: 'red' });
+      }
+    } else {
       localStorage.setItem('email', email);
       setRegistered(true);
-    } catch (error) {
-      M.toast({ html: 'Erreur lors de l\'inscription.', classes: 'red' });
-    }
+    }    
   };
 
   const reinitialize = () => {

@@ -26,10 +26,18 @@ const api_key = "AIzaSyDh_23gFH-oYNTwr5LfHzToeYwXDWM7vsM" // google api key
 // Create tables if they don't exist
 db.serialize(() => {
   db.run("CREATE TABLE IF NOT EXISTS etudiants (etudiantid TEXT PRIMARY KEY, nom TEXT NOT NULL, prenom TEXT, designationlong TEXT)")
-  db.run("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, etudiantid TEXT NOT NULL, email TEXT UNIQUE, password TEXT, first_name TEXT, last_name TEXT, promotion TEXT, group_name TEXT)");
+  db.run("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, etudiantid TEXT NOT NULL, email TEXT UNIQUE, password TEXT, first_name TEXT, last_name TEXT, promotion TEXT, group_name TEXT, is_admin INTEGER DEFAULT 0)");
   db.run("CREATE TABLE IF NOT EXISTS clockins (id INTEGER PRIMARY KEY, user_id INTEGER, email TEXT, event_id TEXT, event_name TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)");
   db.run("CREATE TABLE IF NOT EXISTS sessions (id INTEGER PRIMARY KEY, user_id INTEGER, token TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)");
   db.run("CREATE TABLE IF NOT EXISTS cliclocks(event_id TEXT PRIMARY KEY NOT NULL, etudiantid TEXT NOT NULL, status TEXT NOT NULL)");
+
+  // Ajouter un administrateur par défaut
+  const adminEmail = "admin@idheo.com";
+  const adminPassword = bcrypt.hashSync(process.env.ADMIN_ACCESS_CODE, 8); // Mot de passe par défaut
+  db.run(
+    "INSERT OR IGNORE INTO users (etudiantid, email, password, first_name, last_name, is_admin) VALUES (?, ?, ?, ?, ?, ?)",
+    ["admin", adminEmail, adminPassword, "Admin", "User", 1]
+  );
 });
 
 const getCalendarUrl = (promotion) => {
@@ -556,37 +564,47 @@ app.post('/register', (req, res) => {
 // Login user
 app.post('/login', (req, res) => {
   const { email, password } = req.body;
-
+  
   db.get("SELECT * FROM users WHERE email = ?", [email], (err, row) => {
-    console.log("bcrypt.compareSync(password, row.password) : ", bcrypt.compareSync(password, row.password))
     if (err || !row || !bcrypt.compareSync(password, row.password)) {
-      console.log("err ", err)
-      console.log("row ", row)
       return res.status(400).send("Invalid email or password");
     }
 
-    const userId = row.user_id;
-
-    // Check for active sessions
-    db.get("SELECT * FROM sessions WHERE user_id = ?", [userId], (err, session) => {
-      if (session) {
-        console.log("already logged in")
-        return res.status(400).send("User already logged in from another device");
-      }
-
-      // Generate a token
+    // Vérifiez si l'utilisateur est un administrateur
+    if (row.is_admin) {
       const token = crypto.randomBytes(16).toString('hex');
-
-      // Store the session
-      db.run("INSERT INTO sessions (user_id, token) VALUES (?, ?)", [userId, token], function (err) {
+      db.run("INSERT INTO sessions (user_id, token) VALUES (?, ?)", [row.etudiantid, token], function (err) {
         if (err) {
-          console.log("error creating session")
           return res.status(500).send("Error creating session");
         }
-
-        return res.status(200).send({ message: "Login successful", token });
+        return res.status(200).send({ message: "Admin login successful", token });
       });
-    });
+    } else {
+      // Logique pour les utilisateurs non administrateurs
+      const userId = row.user_id;
+
+      // Check for active sessions
+      db.get("SELECT * FROM sessions WHERE user_id = ?", [userId], (err, session) => {
+        if (session) {
+          console.log("already logged in")
+          return res.status(400).send("User already logged in from another device");
+        }
+
+        // Generate a token
+        const token = crypto.randomBytes(16).toString('hex');
+
+        // Store the session
+        db.run("INSERT INTO sessions (user_id, token) VALUES (?, ?)", [userId, token], function (err) {
+          if (err) {
+            console.log("error creating session")
+            return res.status(500).send("Error creating session");
+          }
+
+          return res.status(200).send({ message: "Login successful", token });
+        });
+      });
+    }
+    
   });
 });
 
